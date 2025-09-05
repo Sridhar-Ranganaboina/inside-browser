@@ -7,7 +7,6 @@
     return;
   }
   if (window.__commet_loaded__ === true && !existingHost) {
-    // stale flag from a previous session where the panel was removed
     window.__commet_loaded__ = false;
   }
   if (window.__commet_loaded__) return;
@@ -33,7 +32,6 @@
     }
     return path.join(" > ");
   }
-
   function getAccessibleName(el) {
     const aria = el.getAttribute?.("aria-label");
     if (aria) return aria.trim();
@@ -50,32 +48,26 @@
     if (text) return text;
     return "";
   }
-
   function isVisible(el) {
     if (!el || !(el instanceof Element)) return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0 && !!el.offsetParent;
   }
-
   function scoreAgainstName(el, targetName) {
-    if (!targetName) return 1; // if no name provided, neutral score
+    if (!targetName) return 1;
     const n = targetName.trim().toLowerCase();
     if (!n) return 1;
     const cand = getAccessibleName(el).toLowerCase();
     if (!cand) return 0.5;
-
     if (cand === n) return 100;
     if (cand.startsWith(n)) return 50;
     if (cand.includes(n)) return 30;
-
-    // token overlap
     const a = new Set(cand.split(/\s+/));
     const b = new Set(n.split(/\s+/));
     let overlap = 0;
     b.forEach(t => { if (a.has(t)) overlap += 1; });
-    return 10 + overlap; // small bonus
+    return 10 + overlap;
   }
-
   function roleSelector(role) {
     const r = String(role || "").toLowerCase();
     switch (r) {
@@ -86,7 +78,7 @@
       case "link":
         return 'a[href], [role="link"]';
       case "combobox":
-        return 'select, [role="combobox"]';
+        return 'select, [role="combobox"], input[list]';
       case "checkbox":
         return 'input[type="checkbox"], [role="checkbox"]';
       case "radio":
@@ -94,11 +86,9 @@
       case "listbox":
         return '[role="listbox"], select[size], ul[role="listbox"]';
       default:
-        // broad fallback
         return 'a[href], button, [role="button"], input, textarea, select, [role]';
     }
   }
-
   function resolveByQuery(query) {
     if (!query || typeof query !== "object") return null;
     const sel = roleSelector(query.role);
@@ -113,7 +103,6 @@
     }
     return best;
   }
-
   function snapshotPage() {
     const q = "a[href], button, [role=button], input, textarea, select, [role]";
     const controls = [...document.querySelectorAll(q)].map(el => ({
@@ -131,8 +120,6 @@
     }));
     return { url: location.href, title: document.title, controls };
   }
-
-  // ---- Proxy backend via background to avoid CORS ----
   function callBackend(path, body) {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
@@ -149,96 +136,84 @@
     });
   }
 
-  async function performAction(step) {
-    try {
-      const t = (step.action || "").toLowerCase();
+  // robust key dispatch
+  function dispatchKey(el, type, key = "Enter") {
+    const evt = new KeyboardEvent(type, {
+      key, code: key, keyCode: 13, which: 13, bubbles: true, cancelable: true,
+    });
+    Object.defineProperty(evt, "keyCode", { get: () => 13 });
+    Object.defineProperty(evt, "which", { get: () => 13 });
+    (el || document.body).dispatchEvent(evt);
+  }
 
-      // target resolution helper
-      const getTarget = () => {
-        if (step.selector) {
-          const el = document.querySelector(step.selector);
-          if (el && isVisible(el)) return el;
-        }
-        if (step.query) {
-          const el = resolveByQuery(step.query);
-          if (el) return el;
-        }
-        return null;
-      };
+  // Submit heuristics for searches/forms
+  async function submitLike(el) {
+    if (!el) return;
+    // 1) native Enter
+    dispatchKey(el, "keydown");
+    dispatchKey(el, "keypress");
+    dispatchKey(el, "keyup");
+    await new Promise(r => setTimeout(r, 50));
 
-      if (t === "navigate" && step.url) {
-        window.location.href = step.url;
-        return { ok: true };
+    // 2) form submit
+    const form = el.closest("form");
+    if (form) {
+      // try clicking submit first (handles SPA listeners)
+      const btn = form.querySelector('[type="submit"], button, [role="button"]');
+      if (btn && isVisible(btn)) {
+        btn.click();
+      } else {
+        try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch {}
       }
-
-      if (t === "click") {
-        const el = getTarget();
-        if (!el) return { ok: false, error: "target-not-found" };
-        el.scrollIntoView({ block: "center" });
-        el.click();
-        return { ok: true };
-      }
-
-      if (t === "type") {
-        let el = getTarget();
-
-        // very light generic fallback for searches/forms
-        if (!el) {
-          el = document.querySelector('input[type="search"], input[name="q"], input[type="text"], textarea');
-        }
-        if (!el) return { ok: false, error: "target-not-found" };
-
-        el.scrollIntoView({ block: "center" });
-        el.focus();
-        if ("value" in el) {
-          el.value = step.text || "";
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-        } else if (el.isContentEditable) {
-          el.innerText = step.text || "";
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-        }
-
-        if (step.enter) {
-          el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-          el.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
-        }
-        return { ok: true };
-      }
-
-      if (t === "pressenter") {
-        const el = document.activeElement;
-        (el || document.body).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-        (el || document.body).dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
-        return { ok: true };
-      }
-
-      if (t === "waitfortext" && step.text) {
-        const timeout = step.timeout || 8000;
-        const start = Date.now();
-        while (Date.now() - start < timeout) {
-          if (document.body.innerText.includes(step.text)) return { ok: true };
-          await new Promise((r) => setTimeout(r, 200));
-        }
-        return { ok: false, error: "timeout" };
-      }
-
-      if (t === "scroll") {
-        const times = step.times || 1;
-        const dir = (step.direction || "down").toLowerCase();
-        for (let i = 0; i < times; i++) {
-          window.scrollBy({ top: dir === "up" ? -600 : 600, behavior: "smooth" });
-          await new Promise((r) => setTimeout(r, 350));
-        }
-        return { ok: true };
-      }
-
-      if (t === "done") return { ok: true, done: true };
-
-      return { ok: false, error: `unknown-action:${t}` };
-    } catch (e) {
-      return { ok: false, error: String(e) };
+      await new Promise(r => setTimeout(r, 200));
     }
+
+    // 3) obvious search buttons near the input
+    const searchBtn = document.querySelector(
+      'button[aria-label*="Search"], input[type="submit"][value*="Search"], button[name="btnK"], input[name="btnK"]'
+    );
+    if (searchBtn && isVisible(searchBtn)) {
+      searchBtn.click();
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  // Google/Bing-like SERP extraction then generic fallback
+  function collectSearchResults() {
+    const results = [];
+    // Google classic
+    document.querySelectorAll("#search a h3").forEach(h3 => {
+      const a = h3.closest("a");
+      if (!a) return;
+      const url = a.href;
+      const title = h3.textContent.trim();
+      if (url && title) results.push({ title, url });
+    });
+    // Bing
+    if (!results.length) {
+      document.querySelectorAll("li.b_algo h2 a").forEach(a => {
+        const url = a.href;
+        const title = (a.textContent || "").trim();
+        if (url && title) results.push({ title, url });
+      });
+    }
+    // Generic fallback: top visible anchors with text
+    if (!results.length) {
+      const anchors = [...document.querySelectorAll("main a[href], body a[href]")].filter(a =>
+        isVisible(a) && (a.innerText || "").trim().length > 0 && !a.href.startsWith("javascript:") && !a.href.startsWith("#")
+      );
+      anchors.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+      const seen = new Set();
+      for (const a of anchors) {
+        const url = a.href;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        const title = (a.innerText || "").trim().replace(/\s+/g, " ");
+        if (title) results.push({ title, url });
+        if (results.length >= 10) break;
+      }
+    }
+    return results.slice(0, 10);
   }
 
   // ---------- Right-docked panel (Shadow DOM) ----------
@@ -266,7 +241,6 @@
     .close { border:0; background:#ff4d4f; color:#fff; border-radius:8px; padding:4px 10px; cursor:pointer; font-weight:800; }
     .task { padding:8px; }
     .task textarea { width:100%; height:64px; padding:12px; border:1px solid #d8d8d8; border-radius:12px; outline:none; font-size:14px; }
-    /* HORIZONTAL buttons (2 columns) */
     .actions { padding:8px; display:grid; grid-template-columns: 1fr 1fr; column-gap:10px; row-gap:10px; }
     .btn { padding:10px 14px; background:#3f6efb; color:#fff; border:1px solid #3f6efb; border-radius:14px; cursor:pointer; font-weight:700; font-size:14px; }
     .btn:hover { background:#2f57d9; }
@@ -377,7 +351,7 @@
     panels.steps.textContent = JSON.stringify(executed, null, 2);
   }
 
-  // ---------- Close (clear loaded flag so it can reopen without refresh) ----------
+  // ---------- Close (clear flag so it can reopen without refresh) ----------
   shadow.getElementById("commet-close").addEventListener("click", () => {
     host.remove();
     document.body.style.paddingRight = prevPadRight;
@@ -411,6 +385,97 @@
     }
   });
 
+  // --- performAction now accepts task hint for heuristics ---
+  async function performAction(step, taskHint) {
+    try {
+      const t = (step.action || "").toLowerCase();
+
+      const getTarget = () => {
+        if (step.selector) {
+          const el = document.querySelector(step.selector);
+          if (el && isVisible(el)) return el;
+        }
+        if (step.query) {
+          const el = resolveByQuery(step.query);
+          if (el) return el;
+        }
+        return null;
+      };
+
+      if (t === "navigate" && step.url) {
+        window.location.href = step.url;
+        return { ok: true };
+      }
+
+      if (t === "click") {
+        const el = getTarget();
+        if (!el) return { ok: false, error: "target-not-found" };
+        el.scrollIntoView({ block: "center" });
+        el.click();
+        return { ok: true };
+      }
+
+      if (t === "type") {
+        let el = getTarget() ||
+                 document.querySelector('input[type="search"], input[name="q"], input[type="text"], textarea, [contenteditable="true"]');
+        if (!el) return { ok: false, error: "target-not-found" };
+
+        el.scrollIntoView({ block: "center" });
+        el.focus();
+        if ("value" in el) {
+          el.value = step.text || "";
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        } else if (el.isContentEditable) {
+          el.innerText = step.text || "";
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+
+        // Submit heuristics
+        const looksLikeSearch = /(^|\s)(search|find)\b/i.test(taskHint || "") ||
+                                (step.query && /textbox|combobox/i.test(step.query.role || ""));
+        if (step.enter || looksLikeSearch) {
+          await submitLike(el);
+        }
+        return { ok: true };
+      }
+
+      if (t === "pressenter") {
+        const el = document.activeElement || document.body;
+        dispatchKey(el, "keydown");
+        dispatchKey(el, "keypress");
+        dispatchKey(el, "keyup");
+        return { ok: true };
+      }
+
+      if (t === "waitfortext" && step.text) {
+        const timeout = step.timeout || 8000;
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+          if (document.body.innerText.includes(step.text)) return { ok: true };
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        return { ok: false, error: "timeout" };
+      }
+
+      if (t === "scroll") {
+        const times = step.times || 1;
+        const dir = (step.direction || "down").toLowerCase();
+        for (let i = 0; i < times; i++) {
+          window.scrollBy({ top: dir === "up" ? -600 : 600, behavior: "smooth" });
+          await new Promise((r) => setTimeout(r, 350));
+        }
+        return { ok: true };
+      }
+
+      if (t === "done") return { ok: true, done: true };
+
+      return { ok: false, error: `unknown-action:${t}` };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
   shadow.getElementById("btn-auto").addEventListener("click", async () => {
     const task = taskEl.value.trim();
     if (!task) { logLine("⚠️ Enter a task for automation", "err"); return; }
@@ -430,8 +495,9 @@
     const steps = [].concat(plan?.steps || []);
     logLine(`Plan received with ${steps.length} step(s).`);
 
-    for (const step of steps) {
-      const res = await performAction(step);
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      const res = await performAction(step, task);
       if (res.ok) {
         executedSteps.push(step);
         const targetInfo = step.selector
@@ -452,6 +518,16 @@
         }
       } else {
         logLine(`❌ ${step.action} failed: ${res.error || "unknown error"}`, "err");
+      }
+    }
+
+    // If this looked like a search, extract results and show in Result tab as Markdown
+    const isSearchy = /(^|\s)(search|find)\b/i.test(task) || /\bq=/.test(location.search);
+    if (isSearchy) {
+      const items = collectSearchResults();
+      if (items.length) {
+        const md = "### Top results\n\n" + items.map((it, idx) => `${idx + 1}. [${it.title}](${it.url})`).join("\n");
+        setResultMarkdown(md);
       }
     }
 
