@@ -1,12 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Commet Assistant PoC - Extension",
-  "version": "0.1.1",
-  "description": "Execute automation plans and summarize pages.",
+  "version": "0.2.0",
+  "description": "Run natural-language automation and page summaries in your current tab.",
   "permissions": ["scripting", "tabs", "activeTab", "storage"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_title": "Commet Assistant" },
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Commet Assistant"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
