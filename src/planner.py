@@ -1,35 +1,20 @@
 import json
-from typing import List, Dict, Any
-from llm import build_chat_llm
 from models import PlanModel, ActionModel
+from llm import build_chat_llm
 
-async def generate_plan(task: str, dom_snapshot: List[Dict[str, Any]]) -> PlanModel:
+async def generate_plan(task: str, dom_snapshot: list) -> PlanModel:
     llm = build_chat_llm()
-    schema = {
-        "type": "object",
-        "properties": {
-            "steps": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "action": {"type": "string"},
-                        "selector": {"type": "string"},
-                        "text": {"type": "string"},
-                        "url": {"type": "string"},
-                        "query": {"type": "object"},
-                        "enter": {"type": "boolean"}
-                    },
-                    "required": ["action"]
-                }
-            }
-        }
-    }
     prompt = f"""
 You are a browser automation planner.
-Task: {task}
-DOM: {json.dumps(dom_snapshot[:100])}
-Return JSON strictly matching: {json.dumps(schema)}
+User task: "{task}"
+DOM snapshot (elements with tag, text, selector, role, name): {json.dumps(dom_snapshot[:100])}
+
+Rules:
+- Return JSON only: {{"steps":[...]}}
+- Each step: action ∈ navigate|click|type|waitForText|scroll|pressEnter|done
+- Prefer query: {{"role": "...", "name": "..."}} over CSS selectors.
+- If typing into a search box, set enter:true to submit.
+- Be concise, 2-6 steps.
 """
     resp = llm.invoke(prompt)
     try:

@@ -10,7 +10,7 @@ def init_db():
 def get_session():
     return Session(engine)
 
-def upsert_node(url: str, title: str | None, origin: str | None):
+def upsert_node(url: str, title: str | None, origin: str | None) -> Node:
     with get_session() as s:
         stmt = select(Node).where(Node.url == url)
         res = s.exec(stmt).first()
@@ -22,9 +22,9 @@ def upsert_node(url: str, title: str | None, origin: str | None):
         s.add(node); s.commit(); s.refresh(node)
         return node
 
-def add_edge(from_node_id: int, to_node_id: int, via_selector: str | None):
+def add_edge(from_node_id: int, to_node_id: int, via_selector: str | None, label: str | None):
     with get_session() as s:
-        e = Edge(from_node_id=from_node_id, to_node_id=to_node_id, via_selector=via_selector)
+        e = Edge(from_node_id=from_node_id, to_node_id=to_node_id, via_selector=via_selector, label=label)
         s.add(e); s.commit(); s.refresh(e)
         return e
 

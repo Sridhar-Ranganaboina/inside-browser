@@ -3,11 +3,12 @@ from llm import build_chat_llm
 
 class SummarizerAgent(Agent):
     name = "summarizer"
-    description = "Summarizes current page content"
+    description = "Summarizes the current page into Markdown"
 
     async def run(self, context: dict):
+        page_text = "\n".join([c.get("text","") for c in context.get("controls", [])])
         llm = build_chat_llm()
-        text = " ".join([c.get("text","") for c in context.get("controls",[])])
-        prompt = f"Summarize this page in markdown:\n{text[:3000]}"
-        resp = llm.invoke(prompt)
+        resp = llm.invoke(
+            "Summarize the following page content into clear Markdown bullets:\n" + page_text[:4000]
+        )
         return {"summary": resp.content}
