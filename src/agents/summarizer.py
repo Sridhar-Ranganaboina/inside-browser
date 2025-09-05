@@ -1,14 +1,25 @@
-from agents.base import Agent
+# src/agents/summarizer.py
+from typing import Dict, Any
 from llm import build_chat_llm
 
-class SummarizerAgent(Agent):
-    name = "summarizer"
-    description = "Summarizes the current page into Markdown"
+class SummarizerAgent:
+    async def run(self, context: Dict[str, Any]) -> str:
+        """Summarize page text passed from the extension."""
+        text = (context.get("text") or "").strip()
+        title = (context.get("title") or "").strip()
+        url = (context.get("url") or "").strip()
 
-    async def run(self, context: dict):
-        page_text = "\n".join([c.get("text","") for c in context.get("controls", [])])
+        if not text:
+            return "No page text was provided to summarize."
+
         llm = build_chat_llm()
-        resp = llm.invoke(
-            "Summarize the following page content into clear Markdown bullets:\n" + page_text[:4000]
+        prompt = (
+            f"Summarize the following web page for a busy reader. "
+            f"Use bullets, highlight key facts, and include the page title if present.\n\n"
+            f"TITLE: {title}\nURL: {url}\n\n"
+            f"CONTENT:\n{text}\n\n"
+            "Return concise Markdown."
         )
-        return {"summary": resp.content}
+        # LangChain's AzureChatOpenAI implements .invoke
+        resp = llm.invoke(prompt)
+        return getattr(resp, "content", str(resp))

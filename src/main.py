@@ -56,9 +56,19 @@ async def next_endpoint(payload: Dict[str, Any]):
     return plan.model_dump()
 
 @app.post("/summarize")
-async def summarize(payload: Dict[str, Any]):
+async def summarize_endpoint(payload: Dict[str, Any]):
+    task = (payload.get("task") or "Summarize this page").strip()
+    ctx = payload.get("context") or {}
+    # Prefer real text coming from the extension
+    text = (ctx.get("text") or "").strip()
+    if not text:
+        # last-resort fallback: join visible control texts if text is empty
+        controls = ctx.get("dom") or []
+        text = "\n".join([str(c.get("text") or "") for c in controls if c.get("text")]).strip()
+
     agent = SummarizerAgent()
-    return await agent.run(payload)
+    summary = await agent.run({"text": text, "title": ctx.get("title"), "url": ctx.get("url")})
+    return {"summary": summary}
 
 @app.get("/bookmarks")
 async def list_bookmarks():
