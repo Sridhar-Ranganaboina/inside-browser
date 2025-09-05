@@ -2,9 +2,8 @@
   "manifest_version": 3,
   "name": "Commet Assistant",
   "version": "1.1.1",
-  "description": "AI automation, summarization, and bookmarks in any webpage",
   "permissions": ["scripting", "tabs", "activeTab", "storage"],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": ["<all_urls>"],   
   "background": { "service_worker": "background.js" },
   "action": {},
   "web_accessible_resources": [

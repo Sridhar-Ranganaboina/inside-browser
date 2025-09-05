@@ -1,4 +1,20 @@
-const BACKEND = "http://localhost:8000";
+// panel.js
+// Use background proxy for all backend calls (avoids CORS entirely).
+function callBackend(path, body) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: "BACKEND_FETCH", path, method: "POST", body },
+      (resp) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError.message);
+          return;
+        }
+        if (resp?.ok) resolve(resp.data);
+        else reject(resp?.error || `backend_error_${resp?.status || "unknown"}`);
+      }
+    );
+  });
+}
 
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
@@ -28,34 +44,37 @@ function logLine(html) {
   p.appendChild(div); p.scrollTop = p.scrollHeight;
 }
 
-async function callBackend(path, body) {
-  const res = await fetch(`${BACKEND}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body || {})
-  });
-  return res.json();
-}
-
 document.getElementById("btn-sum").addEventListener("click", async () => {
   const task = document.getElementById("task").value.trim() || "Summarize this page";
   logLine(`📝 Summary requested: <b>${task}</b>`);
-  const res = await callBackend("/summarize", { task, context: { url: "about:newtab", title: "New Tab", controls: [] } });
-  setResultMarkdown(res.summary || String(res));
+  try {
+    const res = await callBackend("/summarize", { task, context: { url: "about:newtab", title: "New Tab", controls: [] } });
+    setResultMarkdown(res.summary || JSON.stringify(res));
+  } catch (e) {
+    logLine(`❌ summarize error: ${String(e)}`);
+  }
 });
 
 document.getElementById("btn-bm").addEventListener("click", async () => {
   const bm = document.getElementById("bookmark").value;
   if (!bm) { logLine("⚠️ Select a bookmark first"); return; }
   logLine(`🔖 Running bookmark: <b>${bm}</b>`);
-  const res = await callBackend("/run_bookmark", { name: bm });
-  setResultMarkdown("**Bookmark executed**<br/><br/>" + JSON.stringify(res, null, 2));
+  try {
+    const res = await callBackend("/run_bookmark", { name: bm });
+    setResultMarkdown("**Bookmark executed**<br/><br/>" + JSON.stringify(res, null, 2));
+  } catch (e) {
+    logLine(`❌ bookmark error: ${String(e)}`);
+  }
 });
 
 document.getElementById("btn-auto").addEventListener("click", async () => {
   const task = document.getElementById("task").value.trim();
   if (!task) { logLine("⚠️ Enter a task for automation"); return; }
-  logLine(`⚡ Automation: <b>${task}</b>`);
-  const res = await callBackend("/plan", { prompt: task, dom: [], start_url: "about:newtab" });
-  setResultMarkdown("**Plan (preview; execute on a real site):**<br/><br/>" + JSON.stringify(res, null, 2));
+  logLine(`⚡ Automation (preview on internal page): <b>${task}</b>`);
+  try {
+    const res = await callBackend("/plan", { prompt: task, dom: [], start_url: "about:newtab" });
+    setResultMarkdown("**Plan (preview; run this on a real site to execute):**<br/><br/>" + JSON.stringify(res, null, 2));
+  } catch (e) {
+    logLine(`❌ plan error: ${String(e)}`);
+  }
 });

@@ -2,7 +2,6 @@
   if (window.__commet_loaded__) return;
   window.__commet_loaded__ = true;
 
-  const BACKEND = "http://localhost:8000"; // change if needed
   const PANEL_WIDTH = "20vw";
 
   // ---------- Utilities ----------
@@ -30,20 +29,33 @@
       tag: el.tagName.toLowerCase(),
       text: (el.innerText || el.value || "").trim(),
       role: el.getAttribute("role") || null,
-      name: el.getAttribute("aria-label") || el.getAttribute("name") || el.getAttribute("title") || el.placeholder || (el.innerText || "").trim(),
+      name:
+        el.getAttribute("aria-label") ||
+        el.getAttribute("name") ||
+        el.getAttribute("title") ||
+        el.placeholder ||
+        (el.innerText || "").trim(),
       href: el.getAttribute("href") || null,
-      selector: cssPath(el)
+      selector: cssPath(el),
     }));
     return { url: location.href, title: document.title, controls };
   }
 
-  async function callBackend(path, body) {
-    const res = await fetch(`${BACKEND}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {})
+  // ---- Proxy all backend calls via background to avoid CORS ----
+  function callBackend(path, body) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: "BACKEND_FETCH", path, method: "POST", body },
+        (resp) => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError.message);
+            return;
+          }
+          if (resp?.ok) resolve(resp.data);
+          else reject(resp?.error || `backend_error_${resp?.status || "unknown"}`);
+        }
+      );
     });
-    return res.json();
   }
 
   async function performAction(step) {
@@ -82,7 +94,7 @@
         const start = Date.now();
         while (Date.now() - start < timeout) {
           if (document.body.innerText.includes(step.text)) return { ok: true };
-          await new Promise(r => setTimeout(r, 200));
+          await new Promise((r) => setTimeout(r, 200));
         }
         return { ok: false, error: "timeout" };
       }
@@ -91,7 +103,7 @@
         const dir = (step.direction || "down").toLowerCase();
         for (let i = 0; i < times; i++) {
           window.scrollBy({ top: dir === "up" ? -600 : 600, behavior: "smooth" });
-          await new Promise(r => setTimeout(r, 350));
+          await new Promise((r) => setTimeout(r, 350));
         }
         return { ok: true };
       }
@@ -184,15 +196,14 @@
   `;
   shadow.append(style, root);
 
-  // ---------- Drag vertically by header ----------
+  // ---------- Drag vertically ----------
   (() => {
     const header = shadow.getElementById("commet-drag");
     let startY = 0, startOffset = 0, dragging = false;
     header.style.cursor = "grab";
     header.addEventListener("mousedown", (e) => {
       dragging = true; startY = e.clientY; startOffset = parseInt(host.style.top || "0", 10);
-      header.style.cursor = "grabbing";
-      e.preventDefault();
+      header.style.cursor = "grabbing"; e.preventDefault();
     });
     window.addEventListener("mousemove", (e) => {
       if (!dragging) return;
@@ -209,17 +220,15 @@
   const panels = {
     log: shadow.getElementById("panel-log"),
     result: shadow.getElementById("panel-result"),
-    steps: shadow.getElementById("panel-steps")
+    steps: shadow.getElementById("panel-steps"),
   };
   function switchTab(name) {
     shadow.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
     Object.keys(panels).forEach(k => panels[k].style.display = (k === name ? "block" : "none"));
   }
-  shadow.querySelectorAll(".tab").forEach(tab => {
-    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
-  });
+  shadow.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 
-  // ---------- Logging helpers ----------
+  // ---------- Logging ----------
   function logLine(html, cls = "") {
     const div = document.createElement("div");
     div.className = cls;
@@ -254,16 +263,24 @@
     const task = taskEl.value.trim() || "Summarize this page";
     logLine(`📝 Summary requested: <b>${task}</b>`);
     const snap = snapshotPage();
-    const res = await callBackend("/summarize", { task, context: snap });
-    setResultMarkdown(res.summary || String(res));
+    try {
+      const res = await callBackend("/summarize", { task, context: snap });
+      setResultMarkdown(res.summary || String(res));
+    } catch (e) {
+      logLine(`❌ summarize error: ${String(e)}`, "err");
+    }
   });
 
   shadow.getElementById("btn-bm").addEventListener("click", async () => {
     const bm = shadow.getElementById("bookmark").value;
     if (!bm) { logLine("⚠️ Select a bookmark first", "err"); return; }
     logLine(`🔖 Running bookmark: <b>${bm}</b>`);
-    const res = await callBackend("/run_bookmark", { name: bm });
-    setResultMarkdown("**Bookmark executed**<br/><br/>" + JSON.stringify(res, null, 2));
+    try {
+      const res = await callBackend("/run_bookmark", { name: bm });
+      setResultMarkdown("**Bookmark executed**<br/><br/>" + JSON.stringify(res, null, 2));
+    } catch (e) {
+      logLine(`❌ bookmark error: ${String(e)}`, "err");
+    }
   });
 
   shadow.getElementById("btn-auto").addEventListener("click", async () => {
@@ -274,7 +291,14 @@
     const executedSteps = [];
     let snap = snapshotPage();
 
-    const plan = await callBackend("/plan", { prompt: task, dom: snap.controls, start_url: snap.url });
+    let plan;
+    try {
+      plan = await callBackend("/plan", { prompt: task, dom: snap.controls, start_url: snap.url });
+    } catch (e) {
+      logLine(`❌ /plan error: ${String(e)}`, "err");
+      return;
+    }
+
     const steps = [].concat(plan?.steps || []);
     logLine(`Plan received with ${steps.length} step(s).`);
 
@@ -283,7 +307,7 @@
       if (res.ok) {
         executedSteps.push(step);
         logLine(`✅ ${step.action} ${step.selector ? `→ <code>${step.selector}</code>` : (step.url || "")}`, "ok");
-        await new Promise(r => setTimeout(r, 700));
+        await new Promise((r) => setTimeout(r, 700));
         snap = snapshotPage();
 
         try {
