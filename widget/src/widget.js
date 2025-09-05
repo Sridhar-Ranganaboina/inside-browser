@@ -1,0 +1,1 @@
+// (full widget.js from chat, truncated for brevity)

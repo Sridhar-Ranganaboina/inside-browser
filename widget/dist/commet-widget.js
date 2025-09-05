@@ -1,0 +1,1 @@
+// For PoC, same as src/widget.js

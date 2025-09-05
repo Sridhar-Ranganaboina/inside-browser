@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Commet Assistant</title>
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .wrap { height: 100vh; display: grid; grid-template-rows: auto auto auto auto 1fr; }
+    .header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#3f6efb; color:#fff; font-weight:700; }
+    .task { padding:8px; }
+    textarea { width:100%; height:64px; padding:12px; border:1px solid #d8d8d8; border-radius:12px; outline:none; font-size:14px; }
+    /* HORIZONTAL buttons (2 columns) */
+    .actions { padding:8px; display:grid; grid-template-columns: 1fr 1fr; column-gap:10px; row-gap:10px; }
+    .btn { padding:10px 14px; background:#3f6efb; color:#fff; border:1px solid #3f6efb; border-radius:14px; cursor:pointer; font-weight:700; font-size:14px; }
+    .btn:hover { background:#2f57d9; }
+    .select-row { padding:0 8px; }
+    select { width:100%; padding:10px; border:1px solid #d8d8d8; border-radius:12px; font-size:14px; }
+    .bm-row { padding:8px; }
+    .tabs { display:flex; gap:6px; padding:8px; }
+    .tab { border:1px solid #e6e6e6; padding:6px 10px; border-radius:12px; cursor:pointer; font-weight:700; }
+    .tab.active { background:#f2f6ff; border-color:#b9d1ff; color:#3f6efb; }
+    .panel { border-top:1px solid #e6e6e6; margin-top:6px; height:100%; overflow:auto; padding:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12.5px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">Commet Assistant (Extension Page)</div>
+
+    <div class="task"><textarea id="task" placeholder="Ask me something…"></textarea></div>
+
+    <div class="actions">
+      <button class="btn" id="btn-auto">⚡ Run Automation</button>
+      <button class="btn" id="btn-sum">📝 Summarize</button>
+    </div>
+
+    <div class="select-row">
+      <select id="bookmark">
+        <option value="">-- Select a bookmark --</option>
+        <option value="create_change_request">Create Change Request</option>
+        <option value="list_incidents">List Incidents (this month)</option>
+        <option value="raise_ticket">Raise Ticket</option>
+      </select>
+    </div>
+
+    <div class="bm-row">
+      <button class="btn" id="btn-bm">🔖 Run Bookmark</button>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="log">Log</div>
+      <div class="tab" data-tab="result">Result</div>
+      <div class="tab" data-tab="steps">Steps</div>
+    </div>
+
+    <div class="panel" id="panel-log"><div class="muted">You opened the extension on a New Tab / chrome:// page. Automation will work when opened on a normal website.</div></div>
+    <div class="panel" id="panel-result" style="display:none;"></div>
+    <div class="panel" id="panel-steps" style="display:none;"></div>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>
