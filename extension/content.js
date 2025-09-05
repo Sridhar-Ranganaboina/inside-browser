@@ -34,6 +34,86 @@
     return path.join(" > ");
   }
 
+  function getAccessibleName(el) {
+    const aria = el.getAttribute?.("aria-label");
+    if (aria) return aria.trim();
+    if (el.id) {
+      const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (lab?.innerText) return lab.innerText.trim();
+    }
+    const title = el.getAttribute?.("title");
+    if (title) return title.trim();
+    const placeholder = el.getAttribute?.("placeholder");
+    if (placeholder) return placeholder.trim();
+    if (el.name) return String(el.name).trim();
+    const text = (el.innerText || "").trim();
+    if (text) return text;
+    return "";
+  }
+
+  function isVisible(el) {
+    if (!el || !(el instanceof Element)) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && !!el.offsetParent;
+  }
+
+  function scoreAgainstName(el, targetName) {
+    if (!targetName) return 1; // if no name provided, neutral score
+    const n = targetName.trim().toLowerCase();
+    if (!n) return 1;
+    const cand = getAccessibleName(el).toLowerCase();
+    if (!cand) return 0.5;
+
+    if (cand === n) return 100;
+    if (cand.startsWith(n)) return 50;
+    if (cand.includes(n)) return 30;
+
+    // token overlap
+    const a = new Set(cand.split(/\s+/));
+    const b = new Set(n.split(/\s+/));
+    let overlap = 0;
+    b.forEach(t => { if (a.has(t)) overlap += 1; });
+    return 10 + overlap; // small bonus
+  }
+
+  function roleSelector(role) {
+    const r = String(role || "").toLowerCase();
+    switch (r) {
+      case "textbox":
+        return 'input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], textarea, [role="textbox"], [contenteditable="true"]';
+      case "button":
+        return 'button, [role="button"], input[type="button"], input[type="submit"]';
+      case "link":
+        return 'a[href], [role="link"]';
+      case "combobox":
+        return 'select, [role="combobox"]';
+      case "checkbox":
+        return 'input[type="checkbox"], [role="checkbox"]';
+      case "radio":
+        return 'input[type="radio"], [role="radio"]';
+      case "listbox":
+        return '[role="listbox"], select[size], ul[role="listbox"]';
+      default:
+        // broad fallback
+        return 'a[href], button, [role="button"], input, textarea, select, [role]';
+    }
+  }
+
+  function resolveByQuery(query) {
+    if (!query || typeof query !== "object") return null;
+    const sel = roleSelector(query.role);
+    const nodes = [...document.querySelectorAll(sel)];
+    let best = null;
+    let bestScore = -1;
+    const targetName = (query.name || "").toString().trim();
+    for (const el of nodes) {
+      if (!isVisible(el)) continue;
+      const s = scoreAgainstName(el, targetName);
+      if (s > bestScore) { best = el; bestScore = s; }
+    }
+    return best;
+  }
+
   function snapshotPage() {
     const q = "a[href], button, [role=button], input, textarea, select, [role]";
     const controls = [...document.querySelectorAll(q)].map(el => ({
@@ -72,34 +152,67 @@
   async function performAction(step) {
     try {
       const t = (step.action || "").toLowerCase();
+
+      // target resolution helper
+      const getTarget = () => {
+        if (step.selector) {
+          const el = document.querySelector(step.selector);
+          if (el && isVisible(el)) return el;
+        }
+        if (step.query) {
+          const el = resolveByQuery(step.query);
+          if (el) return el;
+        }
+        return null;
+      };
+
       if (t === "navigate" && step.url) {
         window.location.href = step.url;
         return { ok: true };
       }
-      if (t === "click" && step.selector) {
-        const el = document.querySelector(step.selector);
-        if (!el) return { ok: false, error: "selector-not-found" };
+
+      if (t === "click") {
+        const el = getTarget();
+        if (!el) return { ok: false, error: "target-not-found" };
         el.scrollIntoView({ block: "center" });
         el.click();
         return { ok: true };
       }
-      if (t === "type" && step.selector) {
-        const el = document.querySelector(step.selector);
-        if (!el) return { ok: false, error: "selector-not-found" };
+
+      if (t === "type") {
+        let el = getTarget();
+
+        // very light generic fallback for searches/forms
+        if (!el) {
+          el = document.querySelector('input[type="search"], input[name="q"], input[type="text"], textarea');
+        }
+        if (!el) return { ok: false, error: "target-not-found" };
+
+        el.scrollIntoView({ block: "center" });
         el.focus();
         if ("value" in el) {
           el.value = step.text || "";
           el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        } else if (el.isContentEditable) {
+          el.innerText = step.text || "";
+          el.dispatchEvent(new Event("input", { bubbles: true }));
         }
+
         if (step.enter) {
           el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+          el.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
         }
         return { ok: true };
       }
+
       if (t === "pressenter") {
-        document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        const el = document.activeElement;
+        (el || document.body).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        (el || document.body).dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
         return { ok: true };
       }
+
       if (t === "waitfortext" && step.text) {
         const timeout = step.timeout || 8000;
         const start = Date.now();
@@ -109,6 +222,7 @@
         }
         return { ok: false, error: "timeout" };
       }
+
       if (t === "scroll") {
         const times = step.times || 1;
         const dir = (step.direction || "down").toLowerCase();
@@ -118,7 +232,9 @@
         }
         return { ok: true };
       }
+
       if (t === "done") return { ok: true, done: true };
+
       return { ok: false, error: `unknown-action:${t}` };
     } catch (e) {
       return { ok: false, error: String(e) };
@@ -150,6 +266,7 @@
     .close { border:0; background:#ff4d4f; color:#fff; border-radius:8px; padding:4px 10px; cursor:pointer; font-weight:800; }
     .task { padding:8px; }
     .task textarea { width:100%; height:64px; padding:12px; border:1px solid #d8d8d8; border-radius:12px; outline:none; font-size:14px; }
+    /* HORIZONTAL buttons (2 columns) */
     .actions { padding:8px; display:grid; grid-template-columns: 1fr 1fr; column-gap:10px; row-gap:10px; }
     .btn { padding:10px 14px; background:#3f6efb; color:#fff; border:1px solid #3f6efb; border-radius:14px; cursor:pointer; font-weight:700; font-size:14px; }
     .btn:hover { background:#2f57d9; }
@@ -260,15 +377,11 @@
     panels.steps.textContent = JSON.stringify(executed, null, 2);
   }
 
-  // ---------- Close (CRITICAL FIX: clear the loaded flag) ----------
+  // ---------- Close (clear loaded flag so it can reopen without refresh) ----------
   shadow.getElementById("commet-close").addEventListener("click", () => {
     host.remove();
     document.body.style.paddingRight = prevPadRight;
-    try {
-      delete window.__commet_loaded__;   // ← allows re-open without page refresh
-    } catch {
-      window.__commet_loaded__ = false;
-    }
+    try { delete window.__commet_loaded__; } catch { window.__commet_loaded__ = false; }
   });
 
   // ---------- Button actions ----------
@@ -321,7 +434,10 @@
       const res = await performAction(step);
       if (res.ok) {
         executedSteps.push(step);
-        logLine(`✅ ${step.action} ${step.selector ? `→ <code>${step.selector}</code>` : (step.url || "")}`, "ok");
+        const targetInfo = step.selector
+          ? `→ <code>${step.selector}</code>`
+          : (step.query ? `→ ${JSON.stringify(step.query)}` : (step.url || ""));
+        logLine(`✅ ${step.action} ${targetInfo}`, "ok");
         await new Promise((r) => setTimeout(r, 700));
         snap = snapshotPage();
 
