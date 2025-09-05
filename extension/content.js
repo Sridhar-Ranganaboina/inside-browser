@@ -1,4 +1,15 @@
 (() => {
+  // --- robust guard: if an existing panel is in DOM, just reveal it; if not, allow re-init ---
+  const existingHost = document.getElementById("commet-root-host");
+  if (existingHost) {
+    existingHost.style.display = "block";
+    existingHost.scrollIntoView({ block: "start" });
+    return;
+  }
+  if (window.__commet_loaded__ === true && !existingHost) {
+    // stale flag from a previous session where the panel was removed
+    window.__commet_loaded__ = false;
+  }
   if (window.__commet_loaded__) return;
   window.__commet_loaded__ = true;
 
@@ -41,7 +52,7 @@
     return { url: location.href, title: document.title, controls };
   }
 
-  // ---- Proxy all backend calls via background to avoid CORS ----
+  // ---- Proxy backend via background to avoid CORS ----
   function callBackend(path, body) {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
@@ -120,13 +131,13 @@
   host.style.position = "fixed";
   host.style.top = "0";
   host.style.right = "0";
-  host.style.width = PANEL_WIDTH;
+  host.style.width = "20vw";
   host.style.height = "100%";
   host.style.zIndex = "2147483647";
   document.body.appendChild(host);
 
   const prevPadRight = document.body.style.paddingRight;
-  document.body.style.paddingRight = PANEL_WIDTH;
+  document.body.style.paddingRight = "20vw";
 
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
@@ -139,7 +150,6 @@
     .close { border:0; background:#ff4d4f; color:#fff; border-radius:8px; padding:4px 10px; cursor:pointer; font-weight:800; }
     .task { padding:8px; }
     .task textarea { width:100%; height:64px; padding:12px; border:1px solid #d8d8d8; border-radius:12px; outline:none; font-size:14px; }
-    /* HORIZONTAL buttons (2 columns) */
     .actions { padding:8px; display:grid; grid-template-columns: 1fr 1fr; column-gap:10px; row-gap:10px; }
     .btn { padding:10px 14px; background:#3f6efb; color:#fff; border:1px solid #3f6efb; border-radius:14px; cursor:pointer; font-weight:700; font-size:14px; }
     .btn:hover { background:#2f57d9; }
@@ -250,10 +260,15 @@
     panels.steps.textContent = JSON.stringify(executed, null, 2);
   }
 
-  // ---------- Close ----------
+  // ---------- Close (CRITICAL FIX: clear the loaded flag) ----------
   shadow.getElementById("commet-close").addEventListener("click", () => {
     host.remove();
     document.body.style.paddingRight = prevPadRight;
+    try {
+      delete window.__commet_loaded__;   // ← allows re-open without page refresh
+    } catch {
+      window.__commet_loaded__ = false;
+    }
   });
 
   // ---------- Button actions ----------
