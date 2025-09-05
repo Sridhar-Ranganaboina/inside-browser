@@ -158,6 +158,36 @@
     }));
     return { url: location.href, title: document.title, controls };
   }
+
+  // ---- Wait helpers ----
+  function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+  async function waitFor(testFn, { timeout = 12000, interval = 200 } = {}) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      try { if (testFn()) return true; } catch {}
+      await wait(interval);
+    }
+    return false;
+  }
+  async function waitForPageSettled(timeout = 12000) {
+    // Wait for 'complete' and DOM size to stabilize twice in a row.
+    await waitFor(() => document.readyState === "complete", { timeout, interval: 150 });
+    let last = document.body ? document.body.innerHTML.length : 0;
+    let stable = 0;
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      await wait(300);
+      const cur = document.body ? document.body.innerHTML.length : 0;
+      if (cur === last) {
+        stable += 1;
+        if (stable >= 2) break;
+      } else {
+        stable = 0;
+        last = cur;
+      }
+    }
+  }
+
   function dispatchKey(el, type, key = "Enter") {
     const evt = new KeyboardEvent(type, {
       key, code: key, keyCode: 13, which: 13, bubbles: true, cancelable: true,
@@ -169,18 +199,18 @@
   async function submitLike(el) {
     if (!el) return;
     dispatchKey(el, "keydown"); dispatchKey(el, "keypress"); dispatchKey(el, "keyup");
-    await new Promise(r => setTimeout(r, 50));
+    await wait(50);
     const form = el.closest?.("form");
     if (form) {
       const btn = form.querySelector('[type="submit"], button, [role="button"]');
       if (btn && isVisible(btn)) btn.click();
       else try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch {}
-      await new Promise(r => setTimeout(r, 200));
+      await wait(200);
     }
     const searchBtn = document.querySelector(
       'button[aria-label*="Search"], input[type="submit"][value*="Search"], button[name="btnK"], input[name="btnK"]'
     );
-    if (searchBtn && isVisible(searchBtn)) { searchBtn.click(); await new Promise(r => setTimeout(r, 200)); }
+    if (searchBtn && isVisible(searchBtn)) { searchBtn.click(); await wait(200); }
   }
   function looksLikeSearchTask(t) {
     return /(^|\s)(search|find)\b/i.test(t) || /\bq=/.test(location.search);
@@ -324,7 +354,6 @@
       div.innerHTML = html;
       panels.log.appendChild(div);
       panels.log.scrollTop = panels.log.scrollHeight;
-      // trim log if too large (~200KB)
       if (panels.log.textContent.length > 200000) panels.log.innerHTML = panels.log.innerHTML.slice(-100000);
       savePanels();
     }
@@ -402,10 +431,11 @@
           }
           return null;
         };
-        if (t === "navigate" && step.url) { window.location.href = step.url; return { ok: true }; }
+        if (t === "navigate" && step.url) { window.location.href = step.url; return { ok: true, nav: true }; }
         if (t === "click") {
           const el = getTarget(); if (!el) return { ok: false, error: "target-not-found" };
-          el.scrollIntoView({ block: "center" }); el.click(); return { ok: true };
+          el.scrollIntoView({ block: "center" }); el.click();
+          return { ok: true };
         }
         if (t === "type") {
           let el = getTarget() ||
@@ -420,28 +450,30 @@
             el.innerText = step.text || "";
             el.dispatchEvent(new Event("input", { bubbles: true }));
           }
-          if (step.enter || looksLikeSearchTask(taskHint)) await submitLike(el);
-          return { ok: true };
+          const willSubmit = step.enter || looksLikeSearchTask(taskHint);
+          if (willSubmit) {
+            // Mark that after navigation we should collect results.
+            await setState({ pendingAfterNav: { kind: "collect_search", at: Date.now(), task: taskHint || "" } });
+            await submitLike(el);
+          }
+          return { ok: true, nav: !!willSubmit };
         }
         if (t === "pressenter") {
           const el = document.activeElement || document.body;
+          await setState({ pendingAfterNav: { kind: "collect_search", at: Date.now(), task: taskHint || "" } });
           dispatchKey(el, "keydown"); dispatchKey(el, "keypress"); dispatchKey(el, "keyup");
-          return { ok: true };
+          return { ok: true, nav: true };
         }
         if (t === "waitfortext" && step.text) {
-          const timeout = step.timeout || 8000, start = Date.now();
-          while (Date.now() - start < timeout) {
-            if (document.body.innerText.includes(step.text)) return { ok: true };
-            await new Promise(r => setTimeout(r, 200));
-          }
-          return { ok: false, error: "timeout" };
+          const ok = await waitFor(() => document.body.innerText.includes(step.text), { timeout: step.timeout || 8000, interval: 200 });
+          return ok ? { ok: true } : { ok: false, error: "timeout" };
         }
         if (t === "scroll") {
           const times = step.times || 1;
           const dir = (step.direction || "down").toLowerCase();
           for (let i = 0; i < times; i++) {
             window.scrollBy({ top: dir === "up" ? -600 : 600, behavior: "smooth" });
-            await new Promise(r => setTimeout(r, 350));
+            await wait(350);
           }
           return { ok: true };
         }
@@ -450,6 +482,62 @@
       } catch (e) {
         return { ok: false, error: String(e) };
       }
+    }
+
+    // Result collectors (for search result pages)
+    function collectSearchResults() {
+      const results = [];
+      // Google
+      document.querySelectorAll("#search a h3").forEach(h3 => {
+        const a = h3.closest("a"); if (!a) return;
+        const url = a.href; const title = h3.textContent.trim();
+        if (url && title) results.push({ title, url });
+      });
+      // Bing
+      if (!results.length) {
+        document.querySelectorAll("li.b_algo h2 a").forEach(a => {
+          const url = a.href, title = (a.textContent || "").trim();
+          if (url && title) results.push({ title, url });
+        });
+      }
+      // Generic fallback: first visible links with meaningful text
+      if (!results.length) {
+        const anchors = [...document.querySelectorAll("main a[href], body a[href]")].filter(a =>
+          isVisible(a) && (a.innerText || "").trim().length > 0 && !a.href.startsWith("javascript:") && !a.href.startsWith("#")
+        );
+        anchors.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+        const seen = new Set();
+        for (const a of anchors) {
+          const url = a.href; if (seen.has(url)) continue; seen.add(url);
+          const title = (a.innerText || "").trim().replace(/\s+/g, " ");
+          if (title) results.push({ title, url });
+          if (results.length >= 10) break;
+        }
+      }
+      return results.slice(0, 10);
+    }
+    function renderSearchResultsMarkdown(list) {
+      if (!list || !list.length) { setResultMarkdown("No results detected."); return; }
+      const md = "### Top results\n\n" + list.map((it, idx) => `${idx + 1}. [${it.title}](${it.url})`).join("\n");
+      setResultMarkdown(md);
+    }
+
+    async function collectAndRenderResultsIfPending(st) {
+      const pending = st && st.pendingAfterNav;
+      if (!pending || pending.kind !== "collect_search") return;
+
+      logLine("⏳ Waiting for results page…");
+      // Heuristic waits: readyState and result container presence
+      await waitForPageSettled(12000);
+      await waitFor(
+        () => document.querySelector("#search") || document.querySelector("li.b_algo") || document.querySelector("main a[href]"),
+        { timeout: 8000, interval: 200 }
+      );
+
+      const results = collectSearchResults();
+      renderSearchResultsMarkdown(results);
+      await setState({ pendingAfterNav: null }); // clear flag
+      logLine("📄 Results collected from the loaded page.", "ok");
     }
 
     shadow.getElementById("btn-auto").addEventListener("click", async () => {
@@ -478,9 +566,13 @@
             ? `→ <code>${step.selector}</code>`
             : (step.query ? `→ ${JSON.stringify(step.query)}` : (step.url || ""));
           logLine(`✅ ${step.action} ${targetInfo}`, "ok");
-          await new Promise((r) => setTimeout(r, 700));
-          snap = snapshotPage();
+          await wait(700);
 
+          // If the step just triggered navigation, we stop the loop here;
+          // after reload, the panel will remount and collect results (if flagged).
+          if (res.nav) { logLine("↻ Navigation expected… holding further actions.", "muted"); break; }
+
+          snap = snapshotPage();
           try {
             const next = await callBackend("/next", { last_step: step, dom: snap.controls, current_url: snap.url, prompt: task });
             if (next?.steps?.length) {
@@ -493,58 +585,32 @@
         }
       }
 
-      if (looksLikeSearchTask(task)) {
-        const anchors = collectSearchResults();
-        if (anchors.length) {
-          const md = "### Top results\n\n" + anchors.map((it, idx) => `${idx + 1}. [${it.title}](${it.url})`).join("\n");
-          setResultMarkdown(md);
-        }
-      }
       showSteps(executedSteps);
+
+      // If no navigation happened and it looks like a search, collect immediately.
+      const st = await getState();
+      if (!st?.pendingAfterNav && looksLikeSearchTask(task)) {
+        const results = collectSearchResults();
+        renderSearchResultsMarkdown(results);
+      }
       switchTab("steps");
     });
 
-    function collectSearchResults() {
-      const results = [];
-      document.querySelectorAll("#search a h3").forEach(h3 => {
-        const a = h3.closest("a"); if (!a) return;
-        const url = a.href; const title = h3.textContent.trim();
-        if (url && title) results.push({ title, url });
-      });
-      if (!results.length) {
-        document.querySelectorAll("li.b_algo h2 a").forEach(a => {
-          const url = a.href, title = (a.textContent || "").trim();
-          if (url && title) results.push({ title, url });
-        });
-      }
-      if (!results.length) {
-        const anchors = [...document.querySelectorAll("main a[href], body a[href]")].filter(a =>
-          isVisible(a) && (a.innerText || "").trim().length > 0 && !a.href.startsWith("javascript:") && !a.href.startsWith("#")
-        );
-        anchors.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-        const seen = new Set();
-        for (const a of anchors) {
-          const url = a.href; if (seen.has(url)) continue; seen.add(url);
-          const title = (a.innerText || "").trim().replace(/\s+/g, " ");
-          if (title) results.push({ title, url });
-          if (results.length >= 10) break;
-        }
-      }
-      return results.slice(0, 10);
-    }
-
     // --- Restore previous state (per-tab) ---
-    getState().then((st) => {
-      if (!st) return;
-      if (typeof st.prompt === "string") taskEl.value = st.prompt;
-      if (typeof st.bookmark === "string") bookmarkEl.value = st.bookmark;
-      if (typeof st.logHTML === "string") panels.log.innerHTML = st.logHTML;
-      if (typeof st.resultHTML === "string") panels.result.innerHTML = st.resultHTML;
-      if (typeof st.stepsJSON === "string") panels.steps.textContent = st.stepsJSON;
-      const active = st.activeTab || "log";
-      switchTab(active);
-      // ensure scroll areas are scrollable (CSS already sets overflow:auto and full height)
-      panels.log.scrollTop = panels.log.scrollHeight;
+    getState().then(async (st) => {
+      if (st) {
+        if (typeof st.prompt === "string") taskEl.value = st.prompt;
+        if (typeof st.bookmark === "string") bookmarkEl.value = st.bookmark;
+        if (typeof st.logHTML === "string") panels.log.innerHTML = st.logHTML;
+        if (typeof st.resultHTML === "string") panels.result.innerHTML = st.resultHTML;
+        if (typeof st.stepsJSON === "string") panels.steps.textContent = st.stepsJSON;
+        const active = st.activeTab || "log";
+        switchTab(active);
+        panels.log.scrollTop = panels.log.scrollHeight;
+
+        // NEW: if the last action triggered navigation for a search, finish the job now.
+        await collectAndRenderResultsIfPending(st);
+      }
     });
   }
 
