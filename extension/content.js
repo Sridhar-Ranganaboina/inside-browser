@@ -1,4 +1,3 @@
-// extension/content.js
 (() => {
   // --- robust guard: if an existing panel is in DOM, just reveal it; if not, allow re-init ---
   const existingHost = document.getElementById("commet-root-host");
@@ -14,10 +13,22 @@
   window.__commet_loaded__ = true;
 
   const PANEL_WIDTH = "20vw";
-
-  // --- persist open/closed state so panel reopens after navigation ---
   const STORAGE_KEY_OPEN = "commet_open";
-  const DEFAULT_OPEN = true; // set false to default-hide in prod
+  const DEFAULT_OPEN = true;
+
+  // ---- storage wrappers (use background; content scripts can't always access storage) ----
+  function getOpenFlag() {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "GET_OPEN_FLAG", defaultVal: DEFAULT_OPEN }, (resp) => {
+        resolve(resp && resp.ok ? !!resp.value : DEFAULT_OPEN);
+      });
+    });
+  }
+  function setOpenFlag(val) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "SET_OPEN_FLAG", value: !!val }, () => resolve());
+    });
+  }
 
   // ---------- Utilities ----------
   function cssPath(el) {
@@ -170,10 +181,8 @@
     if (searchBtn && isVisible(searchBtn)) { searchBtn.click(); await new Promise(r => setTimeout(r, 200)); }
   }
 
-  // ---------- Mount if user left it open ----------
-  chrome.storage.session.get({ [STORAGE_KEY_OPEN]: DEFAULT_OPEN }, (cfg) => {
-    if (cfg[STORAGE_KEY_OPEN]) mountPanel();
-  });
+  // ---------- Open panel if user left it open last time ----------
+  getOpenFlag().then((open) => { if (open) mountPanel(); });
 
   function mountPanel() {
     if (document.getElementById("commet-root-host")) return;
@@ -312,8 +321,8 @@
     }
 
     // ---------- Close (persist closed state) ----------
-    shadow.getElementById("commet-close").addEventListener("click", () => {
-      chrome.storage.session.set({ [STORAGE_KEY_OPEN]: false });
+    shadow.getElementById("commet-close").addEventListener("click", async () => {
+      await setOpenFlag(false);
       host.remove();
       document.body.style.paddingRight = prevPadRight;
     });
@@ -338,7 +347,9 @@
       try {
         const res = await callBackend("/summarize", { task, context: snap });
         setResultMarkdown(res.summary || String(res));
-      } catch (e) { logLine(`❌ summarize error: ${String(e)}`, "err"); }
+      } catch (e) {
+        logLine(`❌ summarize error: ${String(e)}`, "err");
+      }
     });
 
     shadow.getElementById("btn-bm").addEventListener("click", async () => {
@@ -348,7 +359,9 @@
       try {
         const res = await callBackend("/run_bookmark", { name: bm });
         setResultMarkdown("**Bookmark executed**<br/><br/>" + JSON.stringify(res, null, 2));
-      } catch (e) { logLine(`❌ bookmark error: ${String(e)}`, "err"); }
+      } catch (e) {
+        logLine(`❌ bookmark error: ${String(e)}`, "err");
+      }
     });
 
     // ---------- Automation core ----------
@@ -448,7 +461,7 @@
     }
 
     shadow.getElementById("btn-auto").addEventListener("click", async () => {
-      chrome.storage.session.set({ [STORAGE_KEY_OPEN]: true }); // keep open across next nav
+      await setOpenFlag(true); // keep open across next nav
       const task = taskEl.value.trim();
       if (!task) { logLine("⚠️ Enter a task for automation", "err"); return; }
       logLine(`⚡ Automation: <b>${task}</b>`);
@@ -499,13 +512,18 @@
     });
   }
 
-  // ---- Re-mount if a SPA wipes the host (with your original guard retained) ----
+  // ---- Re-mount if SPA wipes host; also support toolbar icon open ----
   const obs = new MutationObserver(() => {
     if (!document.getElementById("commet-root-host")) {
-      chrome.storage.session.get({ [STORAGE_KEY_OPEN]: DEFAULT_OPEN }, (cfg) => {
-        if (cfg[STORAGE_KEY_OPEN]) mountPanel();
-      });
+      getOpenFlag().then((open) => { if (open) mountPanel(); });
     }
   });
   obs.observe(document.documentElement, { childList: true, subtree: true });
+
+  // From background (toolbar icon click)
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "OPEN_PANEL") {
+      setOpenFlag(true).then(() => mountPanel());
+    }
+  });
 })();
