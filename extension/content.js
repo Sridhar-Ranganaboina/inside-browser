@@ -1,22 +1,31 @@
 (() => {
-  // --- robust guard: if an existing panel is in DOM, just reveal it; if not, allow re-init ---
+  // If a panel already exists, reveal it; otherwise init.
   const existingHost = document.getElementById("commet-root-host");
   if (existingHost) {
     existingHost.style.display = "block";
     existingHost.scrollIntoView({ block: "start" });
     return;
   }
-  if (window.__commet_loaded__ === true && !existingHost) {
-    window.__commet_loaded__ = false;
-  }
+  if (window.__commet_loaded__ === true && !existingHost) window.__commet_loaded__ = false;
   if (window.__commet_loaded__) return;
   window.__commet_loaded__ = true;
 
   const PANEL_WIDTH = "20vw";
-  const STORAGE_KEY_OPEN = "commet_open";
   const DEFAULT_OPEN = true;
 
-  // ---- storage wrappers (use background; content scripts can't always access storage) ----
+  // ---- Background-bridged storage (per-tab) ----
+  function getState() {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "GET_STATE" }, (resp) => {
+        resolve(resp && resp.ok ? (resp.state || {}) : {});
+      });
+    });
+  }
+  function setState(patch) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "SET_STATE", patch }, () => resolve());
+    });
+  }
   function getOpenFlag() {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: "GET_OPEN_FLAG", defaultVal: DEFAULT_OPEN }, (resp) => {
@@ -30,7 +39,21 @@
     });
   }
 
-  // ---------- Utilities ----------
+  // ---- Backend proxy ----
+  function callBackend(path, body) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: "BACKEND_FETCH", path, method: "POST", body },
+        (resp) => {
+          if (chrome.runtime.lastError) { reject(chrome.runtime.lastError.message); return; }
+          if (resp?.ok) resolve(resp.data);
+          else reject(resp?.error || `backend_error_${resp?.status || "unknown"}`);
+        }
+      );
+    });
+  }
+
+  // ---- DOM utils / targeting ----
   function cssPath(el) {
     if (!(el instanceof Element)) return "";
     if (el.id) return `#${CSS.escape(el.id)}`;
@@ -109,8 +132,7 @@
     if (!query || typeof query !== "object") return null;
     const sel = roleSelector(query.role);
     const nodes = [...document.querySelectorAll(sel)];
-    let best = null;
-    let bestScore = -1;
+    let best = null, bestScore = -1;
     const targetName = (query.name || "").toString().trim();
     for (const el of nodes) {
       if (!isVisible(el)) continue;
@@ -136,21 +158,6 @@
     }));
     return { url: location.href, title: document.title, controls };
   }
-  function callBackend(path, body) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { type: "BACKEND_FETCH", path, method: "POST", body },
-        (resp) => {
-          if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError.message);
-            return;
-          }
-          if (resp?.ok) resolve(resp.data);
-          else reject(resp?.error || `backend_error_${resp?.status || "unknown"}`);
-        }
-      );
-    });
-  }
   function dispatchKey(el, type, key = "Enter") {
     const evt = new KeyboardEvent(type, {
       key, code: key, keyCode: 13, which: 13, bubbles: true, cancelable: true,
@@ -161,12 +168,8 @@
   }
   async function submitLike(el) {
     if (!el) return;
-    // enter
-    dispatchKey(el, "keydown");
-    dispatchKey(el, "keypress");
-    dispatchKey(el, "keyup");
+    dispatchKey(el, "keydown"); dispatchKey(el, "keypress"); dispatchKey(el, "keyup");
     await new Promise(r => setTimeout(r, 50));
-    // form submit
     const form = el.closest?.("form");
     if (form) {
       const btn = form.querySelector('[type="submit"], button, [role="button"]');
@@ -174,14 +177,16 @@
       else try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch {}
       await new Promise(r => setTimeout(r, 200));
     }
-    // search button fallback
     const searchBtn = document.querySelector(
       'button[aria-label*="Search"], input[type="submit"][value*="Search"], button[name="btnK"], input[name="btnK"]'
     );
     if (searchBtn && isVisible(searchBtn)) { searchBtn.click(); await new Promise(r => setTimeout(r, 200)); }
   }
+  function looksLikeSearchTask(t) {
+    return /(^|\s)(search|find)\b/i.test(t) || /\bq=/.test(location.search);
+  }
 
-  // ---------- Open panel if user left it open last time ----------
+  // Open automatically if user left it open
   getOpenFlag().then((open) => { if (open) mountPanel(); });
 
   function mountPanel() {
@@ -205,14 +210,19 @@
     style.textContent = `
       :host { all: initial; }
       * { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-      .wrap { height: 100%; background: #fff; border-left: 1px solid #e6e6e6; display: grid; grid-template-rows: auto auto auto auto 1fr; }
-      .header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#3f6efb; color:#fff; font-weight:700; }
+      .wrap { height: 100%; background: #fff; border-left: 1px solid #e6e6e6;
+              display: grid; grid-template-rows: auto auto auto auto 1fr; }
+      .header { display:flex; align-items:center; justify-content:space-between;
+                padding:10px 12px; background:#3f6efb; color:#fff; font-weight:700; }
       .drag-hint { font-size:12px; opacity:.85 }
-      .close { border:0; background:#ff4d4f; color:#fff; border-radius:8px; padding:4px 10px; cursor:pointer; font-weight:800; }
+      .close { border:0; background:#ff4d4f; color:#fff; border-radius:8px;
+               padding:4px 10px; cursor:pointer; font-weight:800; }
       .task { padding:8px; }
-      .task textarea { width:100%; height:64px; padding:12px; border:1px solid #d8d8d8; border-radius:12px; outline:none; font-size:14px; }
+      .task textarea { width:100%; height:64px; padding:12px; border:1px solid #d8d8d8;
+                       border-radius:12px; outline:none; font-size:14px; }
       .actions { padding:8px; display:grid; grid-template-columns: 1fr 1fr; column-gap:10px; row-gap:10px; }
-      .btn { padding:10px 14px; background:#3f6efb; color:#fff; border:1px solid #3f6efb; border-radius:14px; cursor:pointer; font-weight:700; font-size:14px; }
+      .btn { padding:10px 14px; background:#3f6efb; color:#fff; border:1px solid #3f6efb;
+             border-radius:14px; cursor:pointer; font-weight:700; font-size:14px; }
       .btn:hover { background:#2f57d9; }
       .select-row { padding:0 8px; }
       select { width:100%; padding:10px; border:1px solid #d8d8d8; border-radius:12px; font-size:14px; }
@@ -220,7 +230,8 @@
       .tabs { display:flex; gap:6px; padding:8px; }
       .tab { border:1px solid #e6e6e6; padding:6px 10px; border-radius:12px; cursor:pointer; font-weight:700; }
       .tab.active { background:#f2f6ff; border-color:#b9d1ff; color:#3f6efb; }
-      .panel { border-top:1px solid #e6e6e6; margin-top:6px; height:100%; overflow:auto; padding:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12.5px; }
+      .panel { border-top:1px solid #e6e6e6; margin-top:6px; height:100%; overflow:auto; padding:10px;
+               font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12.5px; }
       .muted { color:#666; }
       .ok { color:#209361; }
       .err { color:#c62828; }
@@ -261,14 +272,12 @@
     `;
     shadow.append(style, root);
 
-    // --- keep key events inside the shadow so Enter doesn't bubble to page ---
+    // Prevent Enter in textarea from bubbling to page
     ["keydown", "keypress", "keyup"].forEach(type => {
-      shadow.addEventListener(type, (e) => {
-        if (e.isTrusted) e.stopPropagation(); // block site hotkeys/navigation
-      }, { capture: true });
+      shadow.addEventListener(type, (e) => { if (e.isTrusted) e.stopPropagation(); }, { capture: true });
     });
 
-    // ---------- Drag vertically ----------
+    // --- Drag vertically
     (() => {
       const header = shadow.getElementById("commet-drag");
       let startY = 0, startOffset = 0, dragging = false;
@@ -286,7 +295,7 @@
       window.addEventListener("mouseup", () => { dragging = false; header.style.cursor = "grab"; });
     })();
 
-    // ---------- Tabs ----------
+    // --- Tabs & panels
     const panels = {
       log: shadow.getElementById("panel-log"),
       result: shadow.getElementById("panel-result"),
@@ -295,16 +304,29 @@
     function switchTab(name) {
       shadow.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
       Object.keys(panels).forEach(k => panels[k].style.display = (k === name ? "block" : "none"));
+      setState({ activeTab: name }).catch(() => {});
     }
     shadow.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 
-    // ---------- Logging / rendering ----------
+    // --- Logging & renderers (each saves state)
+    function savePanels() {
+      setState({
+        prompt: taskEl.value,
+        logHTML: panels.log.innerHTML,
+        resultHTML: panels.result.innerHTML,
+        stepsJSON: panels.steps.textContent,
+        bookmark: bookmarkEl.value
+      }).catch(() => {});
+    }
     function logLine(html, cls = "") {
       const div = document.createElement("div");
       div.className = cls;
       div.innerHTML = html;
       panels.log.appendChild(div);
       panels.log.scrollTop = panels.log.scrollHeight;
+      // trim log if too large (~200KB)
+      if (panels.log.textContent.length > 200000) panels.log.innerHTML = panels.log.innerHTML.slice(-100000);
+      savePanels();
     }
     function setResultMarkdown(mdText) {
       const html = (mdText || "")
@@ -315,22 +337,28 @@
         .replace(/\n/g, "<br/>");
       panels.result.innerHTML = html;
       switchTab("result");
+      savePanels();
     }
     function showSteps(executed) {
       panels.steps.textContent = JSON.stringify(executed, null, 2);
+      savePanels();
     }
 
-    // ---------- Close (persist closed state) ----------
+    // --- Close (remember closed)
     shadow.getElementById("commet-close").addEventListener("click", async () => {
       await setOpenFlag(false);
       host.remove();
       document.body.style.paddingRight = prevPadRight;
     });
 
-    // ---------- Button actions ----------
+    // --- Inputs / buttons
     const taskEl = shadow.getElementById("task");
+    const bookmarkEl = shadow.getElementById("bookmark");
 
-    // Enter submits automation; Shift+Enter inserts newline; block bubbling to page
+    taskEl.addEventListener("input", savePanels);
+    bookmarkEl.addEventListener("change", savePanels);
+
+    // Enter runs automation (Shift+Enter inserts newline)
     taskEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault(); e.stopPropagation();
@@ -347,55 +375,19 @@
       try {
         const res = await callBackend("/summarize", { task, context: snap });
         setResultMarkdown(res.summary || String(res));
-      } catch (e) {
-        logLine(`❌ summarize error: ${String(e)}`, "err");
-      }
+      } catch (e) { logLine(`❌ summarize error: ${String(e)}`, "err"); }
     });
 
     shadow.getElementById("btn-bm").addEventListener("click", async () => {
-      const bm = shadow.getElementById("bookmark").value;
+      const bm = bookmarkEl.value;
       if (!bm) { logLine("⚠️ Select a bookmark first", "err"); return; }
       logLine(`🔖 Running bookmark: <b>${bm}</b>`);
       try {
         const res = await callBackend("/run_bookmark", { name: bm });
         setResultMarkdown("**Bookmark executed**<br/><br/>" + JSON.stringify(res, null, 2));
-      } catch (e) {
-        logLine(`❌ bookmark error: ${String(e)}`, "err");
-      }
+      } catch (e) { logLine(`❌ bookmark error: ${String(e)}`, "err"); }
     });
 
-    // ---------- Automation core ----------
-    function collectSearchResults() {
-      const results = [];
-      document.querySelectorAll("#search a h3").forEach(h3 => {
-        const a = h3.closest("a"); if (!a) return;
-        const url = a.href; const title = h3.textContent.trim();
-        if (url && title) results.push({ title, url });
-      });
-      if (!results.length) {
-        document.querySelectorAll("li.b_algo h2 a").forEach(a => {
-          const url = a.href, title = (a.textContent || "").trim();
-          if (url && title) results.push({ title, url });
-        });
-      }
-      if (!results.length) {
-        const anchors = [...document.querySelectorAll("main a[href], body a[href]")].filter(a =>
-          isVisible(a) && (a.innerText || "").trim().length > 0 && !a.href.startsWith("javascript:") && !a.href.startsWith("#")
-        );
-        anchors.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-        const seen = new Set();
-        for (const a of anchors) {
-          const url = a.href; if (seen.has(url)) continue; seen.add(url);
-          const title = (a.innerText || "").trim().replace(/\s+/g, " ");
-          if (title) results.push({ title, url });
-          if (results.length >= 10) break;
-        }
-      }
-      return results.slice(0, 10);
-    }
-    function looksLikeSearchTask(t) {
-      return /(^|\s)(search|find)\b/i.test(t) || /\bq=/.test(location.search);
-    }
     async function performAction(step, taskHint) {
       try {
         const t = (step.action || "").toLowerCase();
@@ -461,7 +453,7 @@
     }
 
     shadow.getElementById("btn-auto").addEventListener("click", async () => {
-      await setOpenFlag(true); // keep open across next nav
+      await setOpenFlag(true); // keep panel across navs
       const task = taskEl.value.trim();
       if (!task) { logLine("⚠️ Enter a task for automation", "err"); return; }
       logLine(`⚡ Automation: <b>${task}</b>`);
@@ -475,6 +467,7 @@
 
       const steps = [].concat(plan?.steps || []);
       logLine(`Plan received with ${steps.length} step(s).`);
+      savePanels();
 
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
@@ -501,18 +494,61 @@
       }
 
       if (looksLikeSearchTask(task)) {
-        const items = collectSearchResults();
-        if (items.length) {
-          const md = "### Top results\n\n" + items.map((it, idx) => `${idx + 1}. [${it.title}](${it.url})`).join("\n");
+        const anchors = collectSearchResults();
+        if (anchors.length) {
+          const md = "### Top results\n\n" + anchors.map((it, idx) => `${idx + 1}. [${it.title}](${it.url})`).join("\n");
           setResultMarkdown(md);
         }
       }
       showSteps(executedSteps);
       switchTab("steps");
     });
+
+    function collectSearchResults() {
+      const results = [];
+      document.querySelectorAll("#search a h3").forEach(h3 => {
+        const a = h3.closest("a"); if (!a) return;
+        const url = a.href; const title = h3.textContent.trim();
+        if (url && title) results.push({ title, url });
+      });
+      if (!results.length) {
+        document.querySelectorAll("li.b_algo h2 a").forEach(a => {
+          const url = a.href, title = (a.textContent || "").trim();
+          if (url && title) results.push({ title, url });
+        });
+      }
+      if (!results.length) {
+        const anchors = [...document.querySelectorAll("main a[href], body a[href]")].filter(a =>
+          isVisible(a) && (a.innerText || "").trim().length > 0 && !a.href.startsWith("javascript:") && !a.href.startsWith("#")
+        );
+        anchors.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+        const seen = new Set();
+        for (const a of anchors) {
+          const url = a.href; if (seen.has(url)) continue; seen.add(url);
+          const title = (a.innerText || "").trim().replace(/\s+/g, " ");
+          if (title) results.push({ title, url });
+          if (results.length >= 10) break;
+        }
+      }
+      return results.slice(0, 10);
+    }
+
+    // --- Restore previous state (per-tab) ---
+    getState().then((st) => {
+      if (!st) return;
+      if (typeof st.prompt === "string") taskEl.value = st.prompt;
+      if (typeof st.bookmark === "string") bookmarkEl.value = st.bookmark;
+      if (typeof st.logHTML === "string") panels.log.innerHTML = st.logHTML;
+      if (typeof st.resultHTML === "string") panels.result.innerHTML = st.resultHTML;
+      if (typeof st.stepsJSON === "string") panels.steps.textContent = st.stepsJSON;
+      const active = st.activeTab || "log";
+      switchTab(active);
+      // ensure scroll areas are scrollable (CSS already sets overflow:auto and full height)
+      panels.log.scrollTop = panels.log.scrollHeight;
+    });
   }
 
-  // ---- Re-mount if SPA wipes host; also support toolbar icon open ----
+  // Re-mount if SPA wipes the host; also support toolbar icon open
   const obs = new MutationObserver(() => {
     if (!document.getElementById("commet-root-host")) {
       getOpenFlag().then((open) => { if (open) mountPanel(); });
@@ -520,7 +556,6 @@
   });
   obs.observe(document.documentElement, { childList: true, subtree: true });
 
-  // From background (toolbar icon click)
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === "OPEN_PANEL") {
       setOpenFlag(true).then(() => mountPanel());
