@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "commet-assistant-poc-backend"
+version = "0.3.0"
+description = "PoC backend (FastAPI) for site-agnostic automation, summarization, and wired bookmarks"
+authors = ["You <you@example.com>"]
+
+package-mode = true
+
+# Tell Poetry to treat files in ./src as importable modules (e.g., main, settings, planner, etc.)
+packages = [
+  { include = "*", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<3.14"
+langchain = ">=0.3.27"
+openai = "^1.0.0"
+langchain-openai = ">=0.3.2"
+langchain-community = ">=0.3.16"
+azure-identity = "^1.13.0"
+fastapi = "^0.111.0"
+uvicorn = { extras = ["standard"], version = "^0.22.0" }
+httpx = "^0.26.0"
+pydantic = ">=2.11.7"
+sqlmodel = ">=0.0.24"
+alembic = ">=1.16.5"
+python-dotenv = "^1.0.0"
+typing_extensions = "^4.7.1"
+anyio = ">=4.10.0"
+pydantic-settings = ">=2.10.1"
+
+[tool.poetry.scripts]
+comet-backend = "app.main:run"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
