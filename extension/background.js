@@ -58,6 +58,27 @@ async function performAction(tabId, action) {
   return resp || { ok: false, error: "no-response" };
 }
 
+// ---------- NEW: small helpers to stop loops ----------
+function stepKey(s) {
+  return JSON.stringify({
+    action: s?.action || "",
+    selector: s?.selector || null,
+    query: s?.query || null,
+    text: s?.text || null,
+    url: s?.url || null,
+  });
+}
+
+function snapshotSig(snap) {
+  if (!snap) return "none";
+  const head = (snap.controls || [])
+    .slice(0, 30)
+    .map(c => `${c.tag}|${c.role}|${(c.name||"").slice(0,40)}|${(c.text||"").slice(0,40)}`)
+    .join("|");
+  return `${snap.url}::${head}`;
+}
+// ------------------------------------------------------
+
 // Main automation loop
 async function runAutomation(tabId, prompt) {
   if (!tabId) tabId = await getActiveTabId();
@@ -67,6 +88,9 @@ async function runAutomation(tabId, prompt) {
   const snap = await getSnapshot(tabId);
   if (!snap) throw new Error("no snapshot from content script");
 
+  let prevSig = snapshotSig(snap);
+  const seenSteps = new Set();
+
   // Plan
   const plan = await backend("/plan", {
     prompt,
@@ -74,8 +98,11 @@ async function runAutomation(tabId, prompt) {
     start_url: snap.url || null,
   });
 
-  let steps = (plan && plan.steps) ? [...plan.steps] : [];
+  let steps = (plan && plan.steps) ? plan.steps.filter(s => {
+    const k = stepKey(s); if (seenSteps.has(k)) return false; seenSteps.add(k); return true;
+  }) : [];
   let guard = 0;
+  let pressedEnterFallback = false; // only synthesize once per run
 
   while (steps.length && guard < 50) {
     const step = steps.shift();
@@ -86,6 +113,7 @@ async function runAutomation(tabId, prompt) {
 
     // Take fresh snapshot
     const snap2 = await getSnapshot(tabId);
+    const curSig = snapshotSig(snap2);
 
     // Optional: seed explorer (non-blocking)
     try {
@@ -96,6 +124,7 @@ async function runAutomation(tabId, prompt) {
     } catch (_) {}
 
     // Ask backend for next steps based on latest DOM
+    let nextSteps = [];
     try {
       const next = await backend("/next", {
         last_step: step,
@@ -103,17 +132,47 @@ async function runAutomation(tabId, prompt) {
         current_url: snap2?.url || "",
         prompt,
       });
-      if (next && next.steps && next.steps.length) {
-        // Prepend new steps (depth-first-ish)
-        steps = next.steps.concat(steps);
+      if (next && Array.isArray(next.steps)) nextSteps = next.steps;
+    } catch (_) {
+      // keep going with remaining local steps
+    }
+
+    // ---- LOOP FIXES ----
+    // 1) De-duplicate steps we've already executed/queued
+    nextSteps = nextSteps.filter(s => {
+      const k = stepKey(s);
+      if (seenSteps.has(k)) return false;
+      seenSteps.add(k);
+      return true;
+    });
+
+    // 2) If page signature did NOT change and last step was "type",
+    //    and planner keeps suggesting the same "type", drop them and
+    //    synthesize a pressEnter once to move forward.
+    const lastWasType = step?.action === "type";
+    const noPageChange = curSig === prevSig;
+
+    if (lastWasType && noPageChange) {
+      // Remove repetitive type steps (same target/text)
+      nextSteps = nextSteps.filter(s => !(s.action === "type" && stepKey(s) === stepKey(step)));
+
+      if (!pressedEnterFallback && !nextSteps.length) {
+        // Push a single Enter keypress to try to submit searches/forms
+        nextSteps.push({ action: "pressEnter" });
+        pressedEnterFallback = true;
       }
-    } catch (e) {
-      // If /next fails, continue with remaining planned steps
-      // (you can log to content with an APPEND_LOG message if desired)
-      // console.warn("next failed:", e);
+    }
+    // --------------------
+
+    // Prepend new steps (depth-first-ish)
+    if (nextSteps.length) {
+      steps = nextSteps.concat(steps);
     }
 
     if (step.action === "done") break;
+
+    // advance signature window & guard
+    prevSig = curSig;
     guard++;
   }
 }

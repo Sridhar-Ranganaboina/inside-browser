@@ -1,27 +1,30 @@
 // extension/content.js
 (() => {
-  // If a panel already exists, reveal it. Ensure we don't double-inject.
+  // ===========================
+  // Single-inject guard
+  // ===========================
   const existingHost = document.getElementById("commet-root-host");
   if (existingHost) {
     existingHost.style.display = "block";
     existingHost.scrollIntoView({ block: "start" });
-    return;
   }
   if (window.__commet_loaded__ === true && !existingHost) window.__commet_loaded__ = false;
   if (window.__commet_loaded__) return;
   window.__commet_loaded__ = true;
 
-  // ---------------------------------------------------------------------------
+  // Expose shadow root when mounted (for optional UI updates from performAction)
+  let __shadow = null;
+
+  // ===========================
   // Constants
-  // ---------------------------------------------------------------------------
+  // ===========================
   const PANEL_WIDTH = "20vw";
   const DEFAULT_OPEN = true;
   const MAX_TEXT = 20000;
 
-  // ---------------------------------------------------------------------------
-  // Background-bridged per-tab state (works on pages where chrome.storage
-  // isn't allowed). Also a CORS-safe backend fetch bridge.
-  // ---------------------------------------------------------------------------
+  // ===========================
+  // Background bridges (state & backend)
+  // ===========================
   function getState() {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: "GET_STATE" }, (resp) => {
@@ -59,9 +62,9 @@
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // DOM utilities
-  // ---------------------------------------------------------------------------
+  // ===========================
+  // DOM utils (top-level so GET_SNAPSHOT works even if panel isn't mounted)
+  // ===========================
   function cssPath(el) {
     if (!(el instanceof Element)) return "";
     if (el.id) return `#${CSS.escape(el.id)}`;
@@ -192,7 +195,6 @@
       .slice(0, limit);
   }
   function collectTopResultsMarkdown() {
-    // Site-agnostic “good enough” snapshot: title + top headings + top links.
     const h = extractHeadings(10);
     const links = [...document.querySelectorAll("a[href]")]
       .filter(a => isVisible(a))
@@ -203,8 +205,20 @@
     return `## ${document.title || "Page"}\n\n${headBlock}${links ? "### Top results\n" + links : ""}`;
   }
 
-  // Wait helpers
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  function measureDom() { return { url: location.href, len: document.body ? document.body.innerHTML.length : 0 }; }
+  async function waitForDomChange(prev, timeout = 10000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      await wait(250);
+      const cur = measureDom();
+      if (cur.url !== prev.url) return { didNavigate: true, domChanged: true };
+      if (Math.abs(cur.len - prev.len) > 800 || Math.abs(cur.len - prev.len) / Math.max(prev.len || 1, 1) > 0.2) {
+        return { didNavigate: false, domChanged: true };
+      }
+    }
+    return { didNavigate: false, domChanged: false };
+  }
   async function waitForPageSettled(timeout = 12000) {
     const start = Date.now();
     while (document.readyState !== "complete" && Date.now() - start < timeout) await wait(120);
@@ -226,12 +240,41 @@
     return false;
   }
 
-  // Auto-open panel based on flag in background
+  // ===========================
+  // TOP-LEVEL message handlers (always on)
+  // ===========================
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    (async () => {
+      try {
+        if (msg?.type === "GET_SNAPSHOT") {
+          const snap = snapshotPage();
+          sendResponse({ ok: true, snapshot: snap });
+          return;
+        }
+        if (msg?.type === "PERFORM_ACTION") {
+          const r = await performAction(msg.action);
+          sendResponse(r);
+          return;
+        }
+        if (msg?.type === "OPEN_PANEL") {
+          await setOpenFlag(true);
+          mountPanel(); // (idempotent)
+          sendResponse({ ok: true });
+          return;
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true;
+  });
+
+  // Auto-open on load depending on flag
   getOpenFlag().then((open) => { if (open) mountPanel(); });
 
-  // ---------------------------------------------------------------------------
-  // UI: panel creation
-  // ---------------------------------------------------------------------------
+  // ===========================
+  // UI panel
+  // ===========================
   function mountPanel() {
     if (document.getElementById("commet-root-host")) return;
 
@@ -249,17 +292,14 @@
     document.body.style.paddingRight = PANEL_WIDTH;
 
     const shadow = host.attachShadow({ mode: "open" });
+    __shadow = shadow; // store globally for optional UI updates
+
     const style = document.createElement("style");
     style.textContent = `
       :host { all: initial; }
       * { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-      .wrap {
-        height: 100%;
-        background: #fff;
-        border-left: 1px solid #e6e6e6;
-        display: grid;
-        grid-template-rows: auto auto auto auto auto auto 1fr;
-      }
+      .wrap { height: 100%; background: #fff; border-left: 1px solid #e6e6e6;
+              display: grid; grid-template-rows: auto auto auto auto auto auto 1fr; }
       .header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#3f6efb; color:#fff; font-weight:700; }
       .drag-hint { font-size:12px; opacity:.85 }
       .close { border:0; background:#ff4d4f; color:#fff; border-radius:8px; padding:4px 10px; cursor:pointer; font-weight:800; }
@@ -316,12 +356,12 @@
     `;
     shadow.append(style, root);
 
-    // Prevent site hotkeys from stealing Enter etc.
+    // prevent site hotkeys from stealing Enter, etc.
     ["keydown","keypress","keyup"].forEach(type => {
       shadow.addEventListener(type, (e) => { if (e.isTrusted) e.stopPropagation(); }, { capture: true });
     });
 
-    // Simple vertical drag
+    // drag
     (() => {
       const header = shadow.getElementById("commet-drag");
       let startY = 0, startTop = 0, dragging = false;
@@ -338,7 +378,7 @@
       window.addEventListener("mouseup", () => { dragging = false; header.style.cursor = "grab"; });
     })();
 
-    // Tabs
+    // tabs
     const panels = {
       log: shadow.getElementById("panel-log"),
       result: shadow.getElementById("panel-result"),
@@ -351,7 +391,6 @@
     }
     shadow.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 
-    // Logging + saving
     const taskEl = shadow.getElementById("task");
     const bookmarkEl = shadow.getElementById("bookmark");
     function savePanels() {
@@ -392,12 +431,12 @@
       await setOpenFlag(false);
       host.remove();
       document.body.style.paddingRight = prevPadRight;
+      __shadow = null;
     });
 
     taskEl.addEventListener("input", savePanels);
     bookmarkEl.addEventListener("change", savePanels);
 
-    // Enter to run automation (Shift+Enter -> newline)
     taskEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault(); e.stopPropagation();
@@ -405,9 +444,7 @@
       } else { e.stopPropagation(); }
     }, { capture: true });
 
-    // -------------------------------------------------------------------------
-    // SUMMARIZE: sends *real page text* + headings + light DOM
-    // -------------------------------------------------------------------------
+    // Summarize
     shadow.getElementById("btn-sum").addEventListener("click", async () => {
       const task = taskEl.value.trim() || "Summarize this page";
       const snap = snapshotPage();
@@ -429,9 +466,7 @@
       }
     });
 
-    // -------------------------------------------------------------------------
-    // BOOKMARK (wired automation trigger)
-    // -------------------------------------------------------------------------
+    // Bookmarks
     shadow.getElementById("btn-bm").addEventListener("click", async () => {
       const bm = bookmarkEl.value;
       if (!bm) { logLine("⚠️ Select a bookmark first", "err"); return; }
@@ -442,10 +477,7 @@
       } catch (e) { logLine(`❌ bookmark error: ${String(e)}`, "err"); }
     });
 
-    // -------------------------------------------------------------------------
-    // AUTOMATION orchestration is handled by the background script.
-    // Here we: (1) send START_AUTOMATION, (2) implement PERFORM_ACTION + GET_SNAPSHOT.
-    // -------------------------------------------------------------------------
+    // Automation
     shadow.getElementById("btn-auto").addEventListener("click", async () => {
       const prompt = taskEl.value.trim();
       if (!prompt) { logLine("⚠️ Enter a task first", "err"); return; }
@@ -459,9 +491,7 @@
       });
     });
 
-    // -------------------------------------------------------------------------
-    // Restore per-tab state into UI and active tab
-    // -------------------------------------------------------------------------
+    // Restore
     getState().then((st) => {
       if (st) {
         if (typeof st.prompt === "string") taskEl.value = st.prompt;
@@ -474,139 +504,24 @@
       }
     });
 
-    // -------------------------------------------------------------------------
-    // Message handlers used by background for cross-navigation persistence
-    // -------------------------------------------------------------------------
-    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      (async () => {
+    // Provide small helpers for performAction UI updates
+    window.__commet_ui__ = {
+      setResultMarkdown: (md) => setResultMarkdown(md),
+      appendExecutedStep: (step) => {
         try {
-          if (msg?.type === "GET_SNAPSHOT") {
-            const snap = snapshotPage();
-            sendResponse({ ok: true, snapshot: snap });
-            return;
-          }
-          if (msg?.type === "PERFORM_ACTION") {
-            const r = await performAction(msg.action);
-            if (r?.didNavigate) {
-              // Wait for the new document, then show a tiny “results” snapshot.
-              await waitForPageSettled(12000);
-              setResultMarkdown(collectTopResultsMarkdown());
-            }
-            // Save steps log if succeeded
-            if (r?.ok) appendExecutedStep(msg.action);
-            sendResponse(r);
-            return;
-          }
-          if (msg?.type === "OPEN_PANEL") {
-            await setOpenFlag(true);
-            // Already mounted here; ignore.
-            sendResponse({ ok: true });
-            return;
-          }
-        } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          const current = panels.steps.textContent ? JSON.parse(panels.steps.textContent) : [];
+          current.push(step);
+          panels.steps.textContent = JSON.stringify(current, null, 2);
+          savePanels();
+        } catch {
+          panels.steps.textContent = JSON.stringify([step], null, 2);
+          savePanels();
         }
-      })();
-      return true;
-    });
-
-    // Keep a minimal executed-steps list in the Steps tab (only successes)
-    function appendExecutedStep(step) {
-      try {
-        const current = panels.steps.textContent ? JSON.parse(panels.steps.textContent) : [];
-        current.push(step);
-        panels.steps.textContent = JSON.stringify(current, null, 2);
-        savePanels();
-      } catch {
-        panels.steps.textContent = JSON.stringify([step], null, 2);
-        savePanels();
       }
-    }
+    };
+  } // mountPanel
 
-    // -------------------------------------------------------------------------
-    // Element/action execution used by background.js
-    // -------------------------------------------------------------------------
-    async function performAction(action) {
-      try {
-        if (!action || !action.action) return { ok: false, error: "invalid action" };
-
-        const findTarget = () => {
-          if (action.selector) {
-            const el = document.querySelector(action.selector);
-            if (el && isVisible(el)) return el;
-          }
-          if (action.query) {
-            const el = resolveByQuery(action.query);
-            if (el && isVisible(el)) return el;
-          }
-          return null;
-        };
-
-        switch (action.action) {
-          case "navigate": {
-            const u = action.url || "";
-            if (!u) return { ok: false, error: "missing-url" };
-            location.href = u;
-            return { ok: true, didNavigate: true };
-          }
-          case "click": {
-            const el = findTarget();
-            if (!el) return { ok: false, error: "selector-not-found" };
-            el.scrollIntoView({ block: "center", inline: "center" });
-            el.click();
-            return { ok: true, didNavigate: false };
-          }
-          case "type": {
-            const el = findTarget() || document.activeElement;
-            if (!el) return { ok: false, error: "selector-not-found" };
-            // Handle input/textarea/contenteditable
-            el.focus();
-            if ("value" in el) {
-              el.value = action.text || "";
-              el.dispatchEvent(new Event("input", { bubbles: true }));
-              el.dispatchEvent(new Event("change", { bubbles: true }));
-            } else if (el.getAttribute && el.getAttribute("contenteditable") === "true") {
-              el.innerText = action.text || "";
-              el.dispatchEvent(new Event("input", { bubbles: true }));
-            }
-            if (action.enter === true) {
-              ["keydown","keypress","keyup"].forEach(type => {
-                el.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", which: 13, keyCode: 13, bubbles: true }));
-              });
-            }
-            return { ok: true, didNavigate: false };
-          }
-          case "pressEnter": {
-            const el = document.activeElement || document.body;
-            ["keydown","keypress","keyup"].forEach(type => {
-              el.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", which: 13, keyCode: 13, bubbles: true }));
-            });
-            return { ok: true, didNavigate: false };
-          }
-          case "scroll": {
-            const times = action.times || 1;
-            for (let i = 0; i < times; i++) {
-              window.scrollBy(0, action.direction === "up" ? -600 : 600);
-              await wait(350);
-            }
-            return { ok: true, didNavigate: false };
-          }
-          case "waitForText": {
-            const ok = await waitForText(action.text || "", action.timeout || 8000);
-            return ok ? { ok: true, didNavigate: false } : { ok: false, error: "wait-timeout" };
-          }
-          case "done":
-            return { ok: true, done: true, didNavigate: false };
-          default:
-            return { ok: false, error: "unknown-action" };
-        }
-      } catch (e) {
-        return { ok: false, error: String(e) };
-      }
-    } // performAction end
-  } // mountPanel end
-
-  // Re-mount panel if an SPA re-renders / after nav (when flag says open)
+  // Re-mount panel if SPA re-renders / after nav (when flag says open)
   const obs = new MutationObserver(() => {
     if (!document.getElementById("commet-root-host")) {
       getOpenFlag().then((open) => { if (open) mountPanel(); });
@@ -614,8 +529,124 @@
   });
   obs.observe(document.documentElement, { childList: true, subtree: true });
 
-  // Browser action → tell content to open panel
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg?.type === "OPEN_PANEL") setOpenFlag(true).then(() => mountPanel());
+  // ===========================
+  // Action execution (top-level so works even if panel not mounted)
+  // ===========================
+  async function performAction(action) {
+    try {
+      if (!action || !action.action) return { ok: false, error: "invalid action" };
+
+      const findTarget = () => {
+        if (action.selector) {
+          const el = document.querySelector(action.selector);
+          if (el && isVisible(el)) return el;
+        }
+        if (action.query) {
+          const el = resolveByQuery(action.query);
+          if (el && isVisible(el)) return el;
+        }
+        return null;
+      };
+
+      const before = { url: location.href, len: document.body ? document.body.innerHTML.length : 0 };
+
+      switch (action.action) {
+        case "navigate": {
+          const u = action.url || "";
+          if (!u) return { ok: false, error: "missing-url" };
+          location.href = u;
+          return { ok: true, didNavigate: true, domChanged: true };
+        }
+        case "click": {
+          const el = findTarget();
+          if (!el) return { ok: false, error: "selector-not-found" };
+          el.scrollIntoView({ block: "center", inline: "center" });
+          el.click();
+          const changed = await waitForDomChange(before, 8000);
+          if (changed.didNavigate && window.__commet_ui__) {
+            await waitForPageSettled(12000);
+            window.__commet_ui__.setResultMarkdown(collectTopResultsMarkdown());
+          }
+          if (window.__commet_ui__ && changed) window.__commet_ui__.appendExecutedStep(action);
+          return { ok: true, ...changed };
+        }
+        case "type": {
+          const el = findTarget() || document.activeElement;
+          if (!el) return { ok: false, error: "selector-not-found" };
+          el.focus();
+          if ("value" in el) {
+            el.value = action.text || "";
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+          } else if (el.getAttribute && el.getAttribute("contenteditable") === "true") {
+            el.innerText = action.text || "";
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          if (action.enter === true) {
+            ["keydown","keypress","keyup"].forEach(type => {
+              el.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", which: 13, keyCode: 13, bubbles: true }));
+            });
+            try { if (el.form) el.form.submit(); } catch {}
+            const changed = await waitForDomChange(before, 10000);
+            if (changed.didNavigate && window.__commet_ui__) {
+              await waitForPageSettled(12000);
+              window.__commet_ui__.setResultMarkdown(collectTopResultsMarkdown());
+            }
+            if (window.__commet_ui__ && changed) window.__commet_ui__.appendExecutedStep(action);
+            return { ok: true, ...changed };
+          }
+          if (window.__commet_ui__) window.__commet_ui__.appendExecutedStep(action);
+          return { ok: true, didNavigate: false, domChanged: false };
+        }
+        case "pressEnter": {
+          const el = document.activeElement || document.body;
+          ["keydown","keypress","keyup"].forEach(type => {
+            el.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", which: 13, keyCode: 13, bubbles: true }));
+          });
+          const changed = await waitForDomChange(before, 10000);
+          if (changed.didNavigate && window.__commet_ui__) {
+            await waitForPageSettled(12000);
+            window.__commet_ui__.setResultMarkdown(collectTopResultsMarkdown());
+          }
+          if (window.__commet_ui__ && changed) window.__commet_ui__.appendExecutedStep(action);
+          return { ok: true, ...changed };
+        }
+        case "scroll": {
+          const times = action.times || 1;
+          for (let i = 0; i < times; i++) {
+            window.scrollBy(0, action.direction === "up" ? -600 : 600);
+            await wait(350);
+          }
+          const changed = await waitForDomChange(before, 1500);
+          if (window.__commet_ui__ && changed) window.__commet_ui__.appendExecutedStep(action);
+          return { ok: true, ...changed };
+        }
+        case "waitForText": {
+          const ok = await waitForText(action.text || "", action.timeout || 8000);
+          const changed = ok ? { didNavigate: false, domChanged: true } : { didNavigate: false, domChanged: false };
+          if (window.__commet_ui__) window.__commet_ui__.appendExecutedStep(action);
+          return ok ? { ok: true, ...changed } : { ok: false, error: "wait-timeout", ...changed };
+        }
+        case "done":
+          if (window.__commet_ui__) window.__commet_ui__.appendExecutedStep(action);
+          return { ok: true, done: true, didNavigate: false, domChanged: false };
+        default:
+          return { ok: false, error: "unknown-action" };
+      }
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  // ===========================
+// Re-mount panel when needed (guarded; singleton)
+// ===========================
+if (!window.__commet_obs__) {
+  window.__commet_obs__ = new MutationObserver(() => {
+    if (!document.getElementById("commet-root-host")) {
+      getOpenFlag().then((open) => { if (open) mountPanel(); });
+    }
   });
+  window.__commet_obs__.observe(document.documentElement, { childList: true, subtree: true });
+}
 })();
