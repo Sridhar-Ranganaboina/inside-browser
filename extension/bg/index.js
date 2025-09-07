@@ -55,13 +55,29 @@ async function performAction(tabId, action) {
 }
 
 // ----------------------- streaming to the panel -----------------------
+function appendToLogState(tabId, html, cls="") {
+  const st = state(tabId);
+  const line = `<div class="log-line ${cls}">${html}</div>`;
+  st.logHTML = (st.logHTML || "") + line;
+  // crude cap (keeps last ~200k chars)
+  if (st.logHTML.length > 200000) st.logHTML = st.logHTML.slice(-200000);
+}
+
 function stream(tabId, htmlOrText, cls="") {
   const payload = typeof htmlOrText === "string"
     ? { html: htmlOrText, cls }
     : htmlOrText;
+
+  // persist in background state so it survives refresh
+  const toStore = payload.html || payload.text || "";
+  if (toStore) appendToLogState(tabId, toStore, payload.cls || "");
+
   chrome.tabs.sendMessage(tabId, { type: MSG.AUTOMATION_EVENT, ...payload });
 }
+
 function pushSteps(tabId, stepsArr) {
+  // persist JSON so content can prettify after reload
+  state(tabId).stepsJSON = JSON.stringify(stepsArr || []);
   chrome.tabs.sendMessage(tabId, { type: MSG.AUTOMATION_STEPS, steps: stepsArr });
 }
 
@@ -70,13 +86,8 @@ function rewriteStepForPage(step, snapshot) {
   const url = snapshot?.url || "";
   const s = { ...step, query: step.query ? { ...step.query } : null };
 
-  // Prefer textboxes for typing even if LLM said "combobox"
   if (s.action === "type" && s.query?.role === "combobox") s.query.role = "textbox";
-
-  // Amazon: avoid clicking the category dropdown when planner says "combobox Search"
-  if (s.action === "click" && s.query?.role === "combobox" && /amazon\./i.test(url)) {
-    s.query.role = "textbox";
-  }
+  if (s.action === "click" && s.query?.role === "combobox" && /amazon\./i.test(url)) s.query.role = "textbox";
   return s;
 }
 
@@ -88,7 +99,7 @@ async function runAutomation(tabId, prompt) {
 
   runningTabs.add(tabId);
   try {
-    // Ping to ensure content is alive (and panel can answer)
+    // ensure content is alive
     await sendToTab(tabId, { type: MSG.PING_CONTENT });
 
     const snap0 = await getSnapshot(tabId);
@@ -104,37 +115,32 @@ async function runAutomation(tabId, prompt) {
     pushSteps(tabId, queue);
 
     const executed = [];
-    const recent = []; // [signature, timestamp]
+    const recent = [];
     let safety = 0;
 
     while (queue.length && safety < MAX_TOTAL_ACTIONS) {
       let step = queue.shift();
       step = rewriteStepForPage(step, snap0);
 
-      // After type -> inject Enter if not present (helps Google/Amazon submit)
       if (step.action === "type") {
         const next = queue[0];
         if (!(next && next.action === "pressEnter")) queue.unshift({ action: "pressEnter" });
       }
 
-      // Dedup in a small sliding window (avoid type+enter ping-pong)
       const sig = JSON.stringify([step.action, step.selector || step.query?.name || "", step.text || ""]);
       const now = Date.now();
       for (let i = recent.length - 1; i >= 0; i--) if (now - recent[i][1] > DEDUPE_TTL_MS) recent.splice(i, 1);
       if (recent.some(([s]) => s === sig)) { stream(tabId, `⚠️ Skipped duplicate step`, "muted"); continue; }
       recent.push([sig, now]);
 
-      // Execute
       stream(tabId, `✅ ${describeStep(step)}`);
       const r = await performAction(tabId, step);
       if (!r?.ok) stream(tabId, `❌ action failed: <i>${escapeHtml(r?.error || "unknown")}</i>`, "err");
       else executed.push(step);
 
-      // Refresh snapshot and emit readable steps (executed + remaining)
       const snap = await getSnapshot(tabId);
       pushSteps(tabId, executed.concat(queue));
 
-      // Ask backend for the next micro-plan
       try {
         const next = await backend("/next", {
           last_step: step,

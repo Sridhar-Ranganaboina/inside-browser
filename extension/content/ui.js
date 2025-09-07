@@ -110,7 +110,7 @@ export function mountPanel() {
 
   _shadow.append(style, root);
 
-  // Prevent site hotkeys from stealing Enter etc.
+  // Stop page hotkeys from stealing focus/Enter
   ["keydown","keypress","keyup"].forEach(type => {
     _shadow.addEventListener(type, (e) => { if (e.isTrusted) e.stopPropagation(); }, { capture: true });
   });
@@ -127,6 +127,16 @@ export function mountPanel() {
   }
   _shadow.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 
+  // ------- persistence helpers (debounced) -------
+  let saveTimer = null;
+  const saveSoon = (patch) => {
+    clearTimeout(saveTimer);
+    const merged = patch; // small patches each time
+    saveTimer = setTimeout(() => {
+      chrome.runtime.sendMessage({ type: MSG.SET_STATE, patch: merged }, () => {});
+    }, 200);
+  };
+
   // logging
   function appendLogHTML(html, cls="") {
     const div = document.createElement("div");
@@ -134,11 +144,14 @@ export function mountPanel() {
     div.innerHTML = html;
     panels.log.appendChild(div);
     panels.log.scrollTop = panels.log.scrollHeight;
+    // persist log HTML so it survives refresh
+    saveSoon({ logHTML: panels.log.innerHTML });
   }
 
   function setResultMarkdown(mdText) {
     panels.result.innerHTML = mdToHtml(mdText);
     switchTab("result");
+    // (resultHTML is already persisted by your existing flows when needed)
   }
 
   function setSteps(stepsArr) {
@@ -156,6 +169,10 @@ export function mountPanel() {
       return `${i+1}. ${s.action}`;
     }).join("\n");
     panels.steps.textContent = pretty;
+
+    // persist raw steps (background already does this when it streams;
+    // but keep this for content-originated updates, future-proof)
+    try { saveSoon({ stepsJSON: JSON.stringify(stepsArr) }); } catch {}
   }
 
   // Listen for streaming events from background
@@ -225,10 +242,10 @@ export function restoreStateIntoUI(shadowRoot, st) {
   if (typeof st.bookmark === "string") bookmarkEl.value = st.bookmark;
   if (typeof st.logHTML === "string") logEl.innerHTML = st.logHTML;
   if (typeof st.resultHTML === "string") resEl.innerHTML = st.resultHTML;
-  if (typeof st.stepsJSON === "string") {
+
+  if (typeof st.stepsJSON === "string" && st.stepsJSON) {
     try {
       const arr = JSON.parse(st.stepsJSON);
-      resEl.textContent = "";
       stepsEl.textContent = arr.map((s, i) => {
         const q = s.query ? ` {role:${s.query.role||"-"}, name:${s.query.name||"-"}}` : "";
         const t = s.text ? ` "${s.text}"` : "";
@@ -241,6 +258,8 @@ export function restoreStateIntoUI(shadowRoot, st) {
         if (s.action === "done") return `${i+1}. done`;
         return `${i+1}. ${s.action}`;
       }).join("\n");
-    } catch { stepsEl.textContent = st.stepsJSON || ""; }
+    } catch {
+      stepsEl.textContent = st.stepsJSON || "";
+    }
   }
 }
