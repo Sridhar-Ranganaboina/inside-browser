@@ -74,9 +74,14 @@ function scoreAgainstName(el, targetName) {
   const type = (el.getAttribute("type") || "").toLowerCase();
   const role = (el.getAttribute("role") || "").toLowerCase();
 
-  const isTextInput = (tag === "input" && (!type || ["text","search","email","url","number"].includes(type))) || tag === "textarea" || role === "textbox" || el.getAttribute("contenteditable")==="true";
+  const isTextInput =
+    (tag === "input" && (!type || ["text", "search", "email", "url", "number"].includes(type))) ||
+    tag === "textarea" ||
+    role === "textbox" ||
+    el.getAttribute("contenteditable") === "true";
   const isSelectLike = tag === "select" || role === "combobox";
 
+  // Small site hint: Amazon search box
   if (/amazon\./i.test(location.host)) {
     try {
       const amazonBox = document.querySelector("#twotabsearchtextbox");
@@ -90,7 +95,8 @@ function scoreAgainstName(el, targetName) {
     else if (cand.includes(n)) score += 25;
     const A = new Set(cand.split(/\s+/));
     const B = new Set(n.split(/\s+/));
-    let overlap = 0; B.forEach(t => { if (A.has(t)) overlap++; });
+    let overlap = 0;
+    B.forEach(t => { if (A.has(t)) overlap++; });
     score += overlap * 5;
   } else {
     score += 1;
@@ -123,20 +129,20 @@ export function snapshotPage() {
   const q = 'a[href], button, [role=button], input, textarea, select, [role]';
   const controls = [...document.querySelectorAll(q)].map(el => ({
     tag: el.tagName.toLowerCase(),
-    text: (el.innerText || el.value || '').trim(),
-    role: el.getAttribute('role') || null,
+    text: (el.innerText || el.value || "").trim(),
+    role: el.getAttribute("role") || null,
     name:
-      el.getAttribute('aria-label') ||
-      el.getAttribute('name') ||
-      el.getAttribute('title') ||
+      el.getAttribute("aria-label") ||
+      el.getAttribute("name") ||
+      el.getAttribute("title") ||
       el.placeholder ||
-      (el.innerText || '').trim(),
-    href: el.getAttribute('href') || null,
+      (el.innerText || "").trim(),
+    href: el.getAttribute("href") || null,
     selector: cssPath(el),
   }));
 
   const links = controls
-    .filter(c => c.tag === 'a' && c.href)
+    .filter(c => c.tag === "a" && c.href)
     .map(c => {
       try { return new URL(c.href, location.href).href; } catch { return null; }
     })
@@ -154,34 +160,34 @@ export function snapshotPage() {
 // ---------- text extraction ----------
 export function extractReadableText(maxChars = 20000) {
   const clone = document.body.cloneNode(true);
-  clone.querySelectorAll('script,style,noscript,svg,canvas,iframe,nav,footer,aside,form,button,menu,dialog')
+  clone.querySelectorAll("script,style,noscript,svg,canvas,iframe,nav,footer,aside,form,button,menu,dialog")
     .forEach(n => n.remove());
-  const main = clone.querySelector('main,[role=main],article') || clone;
-  let text = (main.innerText || '')
-    .replace(/\s+\n/g, '\n')
-    .replace(/\n\s+/g, '\n')
-    .replace(/[ \t]+/g, ' ')
+  const main = clone.querySelector("main,[role=main],article") || clone;
+  let text = (main.innerText || "")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/[ \t]+/g, " ")
     .trim();
-  if (text.length > maxChars) text = text.slice(0, maxChars) + ' …';
+  if (text.length > maxChars) text = text.slice(0, maxChars) + " …";
   return text;
 }
 
 export function extractHeadings(limit = 40) {
-  return [...document.querySelectorAll('h1,h2,h3')]
-    .map(h => (h.innerText || '').trim())
+  return [...document.querySelectorAll("h1,h2,h3")]
+    .map(h => (h.innerText || "").trim())
     .filter(Boolean)
     .slice(0, limit);
 }
 
 export function collectTopResultsMarkdown() {
   const h = extractHeadings(10);
-  const links = [...document.querySelectorAll('a[href]')]
+  const links = [...document.querySelectorAll("a[href]")]
     .filter(a => isVisible(a))
     .slice(0, 10)
     .map((a, i) => `${i + 1}. [${(a.innerText || a.title || a.href).trim().slice(0, 120) || a.href}](${a.href})`)
-    .join('\n');
-  const headBlock = h.length ? `### Top headings\n- ${h.join('\n- ')}\n\n` : '';
-  return `## ${document.title || 'Page'}\n\n${headBlock}${links ? '### Top results\n' + links : ''}`;
+    .join("\n");
+  const headBlock = h.length ? `### Top headings\n- ${h.join("\n- ")}\n\n` : "";
+  return `## ${document.title || "Page"}\n\n${headBlock}${links ? "### Top results\n" + links : ""}`;
 }
 
 // ---------- waits ----------
@@ -189,7 +195,7 @@ export const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
 export async function waitForPageSettled(timeout = 12000) {
   const start = Date.now();
-  while (document.readyState !== 'complete' && Date.now() - start < timeout) await wait(120);
+  while (document.readyState !== "complete" && Date.now() - start < timeout) await wait(120);
   let last = document.body ? document.body.innerHTML.length : 0;
   let stable = 0;
   while (Date.now() - start < timeout) {
@@ -203,8 +209,56 @@ export async function waitForPageSettled(timeout = 12000) {
 export async function waitForText(txt, timeout = 8000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    if ((document.body?.innerText || '').includes(txt)) return true;
+    if ((document.body?.innerText || "").includes(txt)) return true;
     await wait(250);
+  }
+  return false;
+}
+
+// ---------- helpers for robust typing / submission ----------
+function setNativeValue(el, value) {
+  // Make React/Vue/Angular controlled inputs see the change
+  const { set } = Object.getOwnPropertyDescriptor(el.__proto__, "value") || {};
+  if (set) set.call(el, value);
+  else el.value = value;
+}
+
+function fire(el, type, init = {}) {
+  let ev;
+  if (type.startsWith("key")) {
+    ev = new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init });
+  } else if (type === "input" || type === "change") {
+    ev = new Event(type, { bubbles: true });
+  } else {
+    ev = new Event(type, { bubbles: true, cancelable: true });
+  }
+  el.dispatchEvent(ev);
+}
+
+function submitNearestSearch(el) {
+  // 1) If inside a form, submit the form
+  const form = el.closest("form");
+  if (form) {
+    // Prefer real submit click to trigger site listeners
+    const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
+    if (submitBtn && isVisible(submitBtn)) {
+      submitBtn.click();
+      return true;
+    }
+    form.submit?.();
+    return true;
+  }
+
+  // 2) Try clicking a visible search icon near the input
+  const icon = el.parentElement?.querySelector('button, [role="button"], input[type="submit"]');
+  if (icon && isVisible(icon)) {
+    icon.click();
+    return true;
+  }
+  // Amazon specific fallback
+  if (location.host.includes("amazon.") ) {
+    const go = document.querySelector("#nav-search-submit-button");
+    if (go && isVisible(go)) { go.click(); return true; }
   }
   return false;
 }
@@ -233,6 +287,7 @@ export async function performAction(action) {
         location.href = u;
         return { ok: true, didNavigate: true };
       }
+
       case ACT.CLICK: {
         const el = findTarget();
         if (!el) return { ok: false, error: "selector-not-found" };
@@ -240,32 +295,65 @@ export async function performAction(action) {
         el.click();
         return { ok: true, didNavigate: false };
       }
+
       case ACT.TYPE: {
         const el = findTarget() || document.activeElement;
         if (!el) return { ok: false, error: "selector-not-found" };
+
         el.focus();
-        if ("value" in el) {
-          el.value = action.text || "";
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-        } else if (el.getAttribute && el.getAttribute("contenteditable") === "true") {
-          el.innerText = action.text || "";
-          el.dispatchEvent(new Event("input", { bubbles: true }));
+
+        // If it's a text-capable control, simulate real keystrokes so
+        // modern frameworks detect the change.
+        const text = String(action.text || "");
+        if ("value" in el || el.getAttribute?.("contenteditable") === "true") {
+          // Clear existing value (emit backspace sequence so listeners fire)
+          const current = ("value" in el) ? (el.value ?? "") : (el.innerText ?? "");
+          if (current) {
+            // naive backspace burst (keeps it simple & robust)
+            for (let i = 0; i < current.length; i++) {
+              fire(el, "keydown", { key: "Backspace", code: "Backspace" });
+              fire(el, "keyup",   { key: "Backspace", code: "Backspace" });
+            }
+          }
+
+          if ("value" in el) {
+            setNativeValue(el, ""); // reset
+            fire(el, "input");
+            // type char-by-char
+            for (const ch of text) {
+              fire(el, "keydown", { key: ch, code: ch });
+              setNativeValue(el, el.value + ch);
+              fire(el, "input");
+              fire(el, "keyup", { key: ch, code: ch });
+            }
+            fire(el, "change");
+          } else {
+            // contenteditable
+            el.innerText = text;
+            fire(el, "input");
+          }
         }
+
         if (action.enter === true) {
+          // Try a natural Enter press and submit/search
           ["keydown","keypress","keyup"].forEach(type => {
-            el.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", which: 13, keyCode: 13, bubbles: true }));
+            fire(el, type, { key: "Enter", code: "Enter", which: 13, keyCode: 13 });
           });
+          submitNearestSearch(el);
         }
+
         return { ok: true, didNavigate: false };
       }
+
       case ACT.PRESS_ENTER: {
         const el = document.activeElement || document.body;
         ["keydown","keypress","keyup"].forEach(type => {
-          el.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", which: 13, keyCode: 13, bubbles: true }));
+          fire(el, type, { key: "Enter", code: "Enter", which: 13, keyCode: 13 });
         });
+        submitNearestSearch(el);
         return { ok: true, didNavigate: false };
       }
+
       case ACT.SCROLL: {
         const times = action.times || 1;
         for (let i = 0; i < times; i++) {
@@ -274,12 +362,15 @@ export async function performAction(action) {
         }
         return { ok: true, didNavigate: false };
       }
+
       case ACT.WAIT_TEXT: {
         const ok = await waitForText(action.text || "", action.timeout || 8000);
         return ok ? { ok: true, didNavigate: false } : { ok: false, error: "wait-timeout" };
       }
+
       case ACT.DONE:
         return { ok: true, done: true, didNavigate: false };
+
       default:
         return { ok: false, error: "unknown-action" };
     }
