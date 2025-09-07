@@ -1,0 +1,21 @@
+.wrap { height: 100%; background: #fff; border-left: 1px solid #e6e6e6; display: grid;
+  grid-template-rows: auto auto auto auto auto auto 1fr; }
+.header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#3f6efb; color:#fff; font-weight:700; }
+.drag-hint { font-size:12px; opacity:.85 }
+.close { border:0; background:#ff4d4f; color:#fff; border-radius:8px; padding:4px 10px; cursor:pointer; font-weight:800; }
+.task { padding:8px; }
+.task textarea { width:100%; height:64px; padding:12px; border:1px solid #d8d8d8; border-radius:12px; outline:none; font-size:14px; }
+.actions { padding:8px; display:grid; grid-template-columns: 1fr 1fr; column-gap:10px; row-gap:10px; }
+.btn { padding:10px 14px; background:#3f6efb; color:#fff; border:1px solid #3f6efb; border-radius:14px; cursor:pointer; font-weight:700; font-size:14px; }
+.btn:hover { background:#2f57d9; }
+.select-row { padding:0 8px; }
+select { width:100%; padding:10px; border:1px solid #d8d8d8; border-radius:12px; font-size:14px; }
+.bm-row { padding:8px; }
+.tabs { display:flex; gap:8px; padding:8px; justify-content:center; }
+.tab { border:1px solid #e6e6e6; padding:6px 10px; border-radius:12px; cursor:pointer; font-weight:700; }
+.tab.active { background:#f2f6ff; border-color:#b9d1ff; color:#3f6efb; }
+.panel { border-top:1px solid #e6e6e6; margin-top:6px; height:100%; overflow:auto; padding:10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12.5px; }
+.muted { color:#666; }
+.ok { color:#209361; }
+.err { color:#c62828; }

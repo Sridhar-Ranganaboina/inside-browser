@@ -1,12 +1,7 @@
-from agents.base import Agent
-from planner import generate_plan
 
-class AutomationAgent(Agent):
-    name = "automation"
-    description = "Executes actions on the current page"
+from typing import Dict, Any
 
-    async def run(self, context: dict):
-        prompt = context.get("task", "")
-        dom = context.get("dom", [])
-        plan = await generate_plan(prompt, dom)
-        return {"steps": [s.dict() for s in plan.steps]}
+class AutomationAgent:
+    async def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        # Placeholder: planner handles automation; this returns status for now
+        return {"ok": True, "note": "Automation is orchestrated by planner/background."}
