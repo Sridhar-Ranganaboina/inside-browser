@@ -1,0 +1,92 @@
+{
+  "name": "nanobrowser",
+  "version": "0.1.12",
+  "description": "AI web automation tool",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nanobrowser/nanobrowser.git"
+  },
+  "type": "module",
+  "scripts": {
+    "clean:bundle": "rimraf dist && echo Clean bundle",
+    "clean:node_modules": "npx rimraf node_modules",
+    "clean": "npm run clean:bundle && npm run clean:node_modules",
+    "clean:install": "npm run clean:node_modules && npm ci",
+
+    "build": "npm run clean:bundle && npm run build:all",
+    "build:firefox": "npm run clean:bundle && cross-env __FIREFOX__=true npm run build:all",
+
+    "build:all": "npm run build --workspace=@nanobrowser/dev-utils && npm run build --workspace=@nanobrowser/hmr && npm run build --workspace=@nanobrowser/ui && npm run build --workspace=@nanobrowser/schema-utils && npm run build --workspace=@nanobrowser/i18n && npm run build --workspace=@nanobrowser/shared && npm run build --workspace=@nanobrowser/storage && npm run build --workspace=@nanobrowser/tailwind-config && npm run build --workspace=@nanobrowser/vite-config && npm run build --workspace=@nanobrowser/zipper && npm run build --workspace=chrome-extension && npm run build --workspace=pages/content && npm run build --workspace=pages/options && npm run build --workspace=pages/side-panel",
+
+    "zip": "npm run build:all && npm run zip --workspace=@nanobrowser/zipper",
+    "zip:firefox": "npm run build:firefox && cross-env __FIREFOX__=true npm run zip --workspace=@nanobrowser/zipper",
+
+    "dev": "cross-env __DEV__=true npm run dev --workspace=chrome-extension",
+    "dev:firefox": "cross-env __DEV__=true __FIREFOX__=true npm run dev --workspace=chrome-extension",
+
+    "e2e": "npm run build:all && npm run zip && npm test",
+    "e2e:firefox": "npm run build:firefox && npm run zip:firefox && npm test",
+
+    "type-check": "tsc -b",
+    "lint": "eslint . --fix --cache --cache-location node_modules/.cache/.eslintcache",
+    "lint:fix": "eslint . --fix --cache --cache-location node_modules/.cache/.eslintcache",
+    "prettier": "prettier --write .",
+    "prepare": "husky",
+    "update-version": "bash update_version.sh"
+  },
+  "dependencies": {
+    "eslint-plugin-tailwindcss": "^3.17.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.0.326",
+    "@types/node": "^22.5.5",
+    "@types/react": "18.3.23",
+    "@types/react-dom": "18.3.7",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "autoprefixer": "^10.4.20",
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.25.1",
+    "eslint": "8.57.0",
+    "eslint-config-airbnb-typescript": "18.0.0",
+    "eslint-config-prettier": "9.1.0",
+    "eslint-plugin-import": "2.29.1",
+    "eslint-plugin-jsx-a11y": "6.9.0",
+    "eslint-plugin-prettier": "5.2.4",
+    "eslint-plugin-react": "7.35.2",
+    "eslint-plugin-react-hooks": "4.6.2",
+    "husky": "^9.1.4",
+    "lint-staged": "^15.2.7",
+    "postcss": "^8.4.47",
+    "prettier": "^3.3.3",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^3.4.17",
+    "tslib": "^2.6.3",
+    "typescript": "5.5.4",
+    "vite": "6.3.5",
+    "run-script-os": "^1.1.6"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,json}": [
+      "prettier --write"
+    ]
+  },
+  "packageManager": "npm@10.9.3",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "overrides": {
+    "cross-spawn": "^7.0.5",
+    "esbuild": "^0.25.1",
+    "nanoid": "3.3.11"
+  },
+  "private": true,
+  "workspaces": [
+    "chrome-extension",
+    "packages/*",
+    "pages/*"
+  ]
+}

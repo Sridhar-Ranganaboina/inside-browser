@@ -8,7 +8,7 @@ package-mode = true
 
 # Tell Poetry to treat files in ./src as importable modules (e.g., main, settings, planner, etc.)
 packages = [
-  { include = "*", from = "src" }
+  { include = "*" }
 ]
 
 [tool.poetry.dependencies]
