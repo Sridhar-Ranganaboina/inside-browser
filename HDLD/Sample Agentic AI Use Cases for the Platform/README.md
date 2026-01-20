@@ -1,5 +1,6 @@
-#Agent Tiers
-#🟢 Tier 1 — Autonomous Agents (Strong Agentic)
+# Agent Tiers
+
+🟢 Tier 1 — Autonomous Agents (Strong Agentic)
 
 These fully satisfy all agentic criteria.
 
