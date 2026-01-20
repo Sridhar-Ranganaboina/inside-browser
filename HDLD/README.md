@@ -5,6 +5,8 @@
 <img width="1000" height="563" alt="image" src="https://github.com/user-attachments/assets/7b5bd09e-df90-4c59-bdfe-7576ad4c29d4" />
 <img width="1200" height="632" alt="image" src="https://github.com/user-attachments/assets/6f4f9f41-e655-42f3-8a9d-94797492ec59" />
 
+
+
 ┌────────────────────────────────────────────────────────┐
 │ Browser Extension (Agent Control Node)                  │
 │                                                        │
@@ -67,5 +69,4 @@
            Feedback / Next Action Decision
                     │
                     └────── back to Agent Control Node
-
 
