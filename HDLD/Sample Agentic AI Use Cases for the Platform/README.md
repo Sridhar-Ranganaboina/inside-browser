@@ -182,6 +182,7 @@ Cross-run memory usage
 Explains causality, not just sequence
 
 4️⃣ Technology / QA / Engineering Use Cases
+
 10. Functional Test Generation Agent
 
 Goal
