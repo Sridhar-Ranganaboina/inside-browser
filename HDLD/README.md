@@ -38,21 +38,6 @@ Not deploying new binaries.
 Agent definitions live centrally.
 The extension only discovers and invokes them.
 
-High-level view
-┌────────────────────────────────────────────┐
-│        Central Agent Registry Service       │
-│                                            │
-│  - Agent metadata                           │
-│  - Goal templates                           │
-│  - Skill permissions                        │
-│  - Policy bindings                          │
-│  - RAG scopes                               │
-│  - Versioning                               │
-└────────────────────────────────────────────┘
-                ▲               ▲
-                │               │
-      Admin / CI│               │Extension
-                │               │(read-only)
 
 3️⃣ What an “Agent” looks like (low-code, not code)
 Example agent definition (YAML / JSON)
@@ -117,21 +102,9 @@ What the Agent Store REALLY is
 A registry-backed launcher + status console
 
 Example Extension UI Sections
-[ Agent Catalog ]
-  - Regulatory Change Intelligence
-  - UI Test Generator
-  - Dashboard Anomaly Detector
-  - Investigation Assistant
 
-[ Active Agents ]
-  - Running
-  - Paused
-  - Awaiting approval
+<img width="649" height="746" alt="image" src="https://github.com/user-attachments/assets/ea9120ed-e94b-473c-8f24-8f99adc0e7a1" />
 
-[ History ]
-  - Past runs
-  - Evidence
-  - Confidence
 
 
 This is very compelling for users, and safe.
