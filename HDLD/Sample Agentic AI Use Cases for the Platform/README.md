@@ -1,4 +1,4 @@
-
+#Agent Tiers
 #🟢 Tier 1 — Autonomous Agents (Strong Agentic)
 
 These fully satisfy all agentic criteria.
@@ -10,9 +10,9 @@ Dashboard Anomaly Detection	Learning baseline + self-evaluation
 Semantic Monitoring Agent	Time-aware reasoning
 Knowledge Drift Detection	Long-term memory
 
-#✅ These are unquestionably agentic.
+✅ These are unquestionably agentic.
 
-🟡 Tier 2 — Assistive Agents (Controlled Agentic)
+#🟡 Tier 2 — Assistive Agents (Controlled Agentic)
 
 These are still agents, but operate with human oversight.
 
