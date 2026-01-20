@@ -1,6 +1,6 @@
 # Agent Tiers
 
-🟢 Tier 1 — Autonomous Agents (Strong Agentic)
+## 🟢 Tier 1 — Autonomous Agents (Strong Agentic)
 
 These fully satisfy all agentic criteria.
 
@@ -13,7 +13,7 @@ Knowledge Drift Detection	Long-term memory
 
 ✅ These are unquestionably agentic.
 
-#🟡 Tier 2 — Assistive Agents (Controlled Agentic)
+## 🟡 Tier 2 — Assistive Agents (Controlled Agentic)
 
 These are still agents, but operate with human oversight.
 
@@ -27,7 +27,7 @@ Workflow Documentation Agent	Learns + abstracts
 
 This is perfectly acceptable in enterprise AI.
 
-#🔵 Tier 3 — Agentic Capabilities (NOT standalone agents)
+## 🔵 Tier 3 — Agentic Capabilities (NOT standalone agents)
 
 These should NOT be marketed as independent agents.
 
@@ -46,7 +46,7 @@ This avoids over-claiming.
 
 
 
-#📌 Sample Agentic AI Use Cases for the Platform
+## 📌 Sample Agentic AI Use Cases for the Platform
 1️⃣ Regulatory & Compliance Use Cases (High Enterprise Value)
 1. Regulatory Change Intelligence Agent
 
