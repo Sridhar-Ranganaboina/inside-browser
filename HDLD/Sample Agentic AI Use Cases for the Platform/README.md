@@ -1,4 +1,51 @@
-📌 Sample Agentic AI Use Cases for the Platform
+
+#🟢 Tier 1 — Autonomous Agents (Strong Agentic)
+
+These fully satisfy all agentic criteria.
+
+Use Case	Why it qualifies
+Regulatory Change Intelligence	Goal + RAG + re-planning
+Obligation Diff Agent	Semantic reasoning + memory
+Dashboard Anomaly Detection	Learning baseline + self-evaluation
+Semantic Monitoring Agent	Time-aware reasoning
+Knowledge Drift Detection	Long-term memory
+
+#✅ These are unquestionably agentic.
+
+🟡 Tier 2 — Assistive Agents (Controlled Agentic)
+
+These are still agents, but operate with human oversight.
+
+Use Case	Why still an agent
+Investigation Assistant	Goal-driven + reasoning
+Evidence Collection Agent	Decides relevance
+Human-in-the-loop Review Agent	Knows when to stop
+Workflow Documentation Agent	Learns + abstracts
+
+⚠️ They are agents, but not autonomous.
+
+This is perfectly acceptable in enterprise AI.
+
+#🔵 Tier 3 — Agentic Capabilities (NOT standalone agents)
+
+These should NOT be marketed as independent agents.
+
+Capability	Why not standalone
+Functional Test Generation	Tool invoked by agent
+Regression Classification	Sub-agent / skill
+RAG Search	Capability
+Screenshot Capture	Skill
+
+Call these:
+
+“Agentic skills” or “Sub-agents”
+
+This avoids over-claiming.
+
+
+
+
+#📌 Sample Agentic AI Use Cases for the Platform
 1️⃣ Regulatory & Compliance Use Cases (High Enterprise Value)
 1. Regulatory Change Intelligence Agent
 
