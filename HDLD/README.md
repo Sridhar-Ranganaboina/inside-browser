@@ -1,3 +1,13 @@
+Any browser-based workflow can be transformed into an intelligent agent-driven process by defining a goal.
+
+The platform composes reusable agents to navigate, analyze, retrieve, reason, and synthesize results — all within the user’s authenticated session.
+
+No connectors. No ingestion pipelines. No infrastructure setup.
+
+AI becomes an on-demand capability layered directly on top of existing applications.
+
+
+
 🟦 Browser-Native Goal-Driven Agent Platform
 🟥 Problem Landscape
 
