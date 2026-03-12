@@ -12,3 +12,27 @@ Ultra Short (Best for first slide)
 
 Executive Summary:
 An Agentic AI Platform that enables autonomous agents to execute enterprise workflows through a secure browser-based interface and governed agent marketplace, transforming manual processes into AI-driven intelligent workflows.
+
+
+Team Name:
+CRAFT – Agentic AI Platform
+
+Tech Lead Name:
+Sridhar
+
+Problem being solved:
+Business users spend significant time performing repetitive, multi-step tasks across web portals and enterprise applications, such as data retrieval, monitoring, report preparation, and operational workflows. These activities require navigating multiple systems manually and consolidating information, resulting in productivity loss and slower execution of business processes.
+
+Status:
+Phase 1 – POC in progress (Platform architecture and initial agent workflows under development)
+
+Outcomes delivered:
+Targeted Audience: Internal business teams and operational users
+
+The proposed Agentic AI Platform enables autonomous agents to execute multi-step business workflows through a browser extension interface. The platform introduces a governed internal agent marketplace where teams can publish, discover, and reuse domain-specific agents.
+
+Two engagement models are supported:
+• Short-term agents for task-level execution such as information retrieval, summarization, and ad-hoc workflow assistance.
+• Long-term agents deployed for recurring operational tasks and continuous workflow execution.
+
+Agents can be assigned or leased to teams for specific use cases, enabling scalable reuse across business units while maintaining enterprise governance through access controls, domain whitelisting, audit logging, and compliance monitoring. The platform aims to significantly improve productivity by transforming manual workflows into intelligent, reusable agent-driven processes.
