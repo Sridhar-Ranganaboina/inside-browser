@@ -1,0 +1,14 @@
+Recommended Executive Version
+
+Executive Summary:
+We are building an Agentic AI Platform that enables autonomous agents to execute multi-step business workflows across web and enterprise applications. Delivered through a browser extension and governed backend platform, it allows teams to create, publish, and reuse agents through an internal marketplace. The platform combines AI reasoning with enterprise controls to transform manual tasks into intelligent, reusable workflows at scale.
+
+Even Shorter (Very Executive-Friendly)
+
+Executive Summary:
+We are developing an Agentic AI Platform that enables autonomous agents to execute complex business workflows across web and enterprise systems. Through a browser-based interface and internal agent marketplace, teams can create, share, and scale domain-specific agents securely. The platform brings AI-driven workflow intelligence to everyday enterprise operations.
+
+Ultra Short (Best for first slide)
+
+Executive Summary:
+An Agentic AI Platform that enables autonomous agents to execute enterprise workflows through a secure browser-based interface and governed agent marketplace, transforming manual processes into AI-driven intelligent workflows.
