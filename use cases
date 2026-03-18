@@ -39,3 +39,5 @@ UC 7 – Secure & Controlled Execution Environment
 Ensure all agent actions operate within a secure framework with enterprise controls such as domain whitelisting, sensitive data masking, and audit logging to enforce compliance and prevent data leakage.
 
 👉 (Security — separate concern)
+UC 8 – External System Integration:
+Enable agents to interact with external systems such as APIs, documents, and emails in addition to browser-based workflows. All interactions are performed using the user’s access and governed by enterprise security controls, allowing agents to execute end-to-end workflows across multiple data sources.
