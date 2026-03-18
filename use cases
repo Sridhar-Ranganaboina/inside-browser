@@ -1,0 +1,41 @@
+UC 1 – Multi-Step Workflow Execution by Agents
+
+Enable agents to autonomously execute end-to-end workflows across web and enterprise applications within the user’s browser session, including navigation, data extraction, reasoning, and action execution.
+
+👉 (Core capability — keep this as foundation)
+
+UC 2 – Personal Agent Creation & Reuse
+
+Allow users to create, save, and reuse task-specific agents for repetitive workflows, enabling consistent execution and reducing manual effort over time.
+
+👉 (User-level reuse — clearly separate from marketplace)
+
+UC 3 – Internal Agent Marketplace (Governed Sharing)
+
+Provide a centralized platform for teams to publish, discover, and reuse agents with governance controls such as access permissions, metadata tagging, and usage tracking.
+
+👉 (Team-level sharing — not personal reuse)
+
+UC 4 – Human-in-the-Loop Review & Approval
+
+Enable policy-driven approval workflows where agents can pause execution for user validation before performing sensitive or high-impact actions, ensuring compliance and traceability.
+
+👉 (Governance / control — unique)
+
+UC 5 – On-Demand Task-Level Agents (Short-Term)
+
+Support ephemeral agents for quick, one-time tasks such as summarization, data extraction, or analysis, without maintaining long-term state.
+
+👉 (Short-term / Comet-style usage)
+
+UC 6 – Persistent Operational Agents (Long-Term)
+
+Enable long-running agents that support recurring workflows such as monitoring, reporting, or periodic task execution with maintained context over time.
+
+👉 (Long-term — clearly distinct from UC5)
+
+UC 7 – Secure & Controlled Execution Environment
+
+Ensure all agent actions operate within a secure framework with enterprise controls such as domain whitelisting, sensitive data masking, and audit logging to enforce compliance and prevent data leakage.
+
+👉 (Security — separate concern)
