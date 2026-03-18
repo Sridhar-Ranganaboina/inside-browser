@@ -1,0 +1,3 @@
+We propose an Agentic AI Platform that enables autonomous agents to assist users in executing multi-step workflows directly within their browser environment. Delivered through a browser-based interface, the platform allows agents to understand user intent, navigate applications, extract information, and perform actions using the user’s existing system access.
+
+The platform supports creation and reuse of task-specific agents, enabling users to execute repetitive workflows more efficiently while maintaining enterprise controls such as domain restrictions, data masking, and audit logging. Over time, agents can be refined and reused, transforming manual task execution into intelligent, consistent, and scalable workflows.
