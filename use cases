@@ -1,3 +1,17 @@
+1.1 Project Description
+
+The Agentic AI Platform is designed to enhance how employees execute operational and business workflows by introducing autonomous AI agents that can perform multi-step tasks across web and enterprise applications within the user’s working environment.
+
+Delivered through a browser-based interface and a centralized orchestration platform, these agents can understand user intent, navigate applications, retrieve and analyze data, and execute actions using the user’s existing system access. This enables seamless execution of workflows that are currently manual, repetitive, and time-consuming.
+
+Teams today rely on manual navigation across multiple systems for tasks such as data retrieval, reporting, approvals, and operational updates.
+
+Existing automation solutions are rigid, difficult to maintain, and lack contextual understanding.
+
+There is no unified capability to assist users in executing workflows intelligently while ensuring governance, reuse, and scalability.
+
+
+
 UC 1 – Multi-Step Workflow Execution by Agents
 
 Enable agents to autonomously execute end-to-end workflows across web and enterprise applications within the user’s browser session, including navigation, data extraction, reasoning, and action execution.
