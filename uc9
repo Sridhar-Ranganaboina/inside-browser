@@ -1,0 +1,26 @@
+Short-term: Users can quickly raise a support ticket using a simple natural language prompt, e.g., “My workspace is not functioning, can you raise a support ticket?”
+Long-term: Users can automate recurring tasks such as timesheet entry by providing prompts like “Fill my W2W times by distributing 25% effort across all tasks”, and save these workflows as reusable agents in the marketplace
+
+
+
+
+✅ FR 3.0 – Example Workflows (Prompt-Driven Execution & Reusable Agents)
+The system shall allow users to execute workflows using natural language prompts for both short-term and long-term tasks.
+The system shall support quick, one-time task execution (e.g., raising support tickets, retrieving data) with minimal user input.
+The system shall interpret user intent and automatically generate or map to appropriate workflow steps.
+The system shall enable users to convert executed workflows into reusable agents for future use.
+The system shall support parameterization of workflows (e.g., effort distribution, date ranges, inputs).
+The system shall allow users to save, edit, version, and manage reusable workflows.
+The system shall enable publishing and discovery of reusable workflows in the internal marketplace.
+The system shall provide real-time execution status, logs, and results to users.
+The system shall support human-in-the-loop validation for critical or sensitive workflow steps.
+The system shall leverage browser context and enterprise data to enhance workflow execution.
+🚀 NFR 64 – Example Workflows (Performance, Reliability & Governance)
+Workflow execution shall initiate within acceptable response time (e.g., <2 seconds for trigger).
+The system shall support concurrent execution of workflows across multiple users and sessions at enterprise scale.
+The system shall ensure reliable execution with fault tolerance, retries, and state persistence.
+All workflows shall comply with enterprise security policies, including data masking and access control.
+The system shall provide audit logs, execution traces, and monitoring for all workflow activities.
+The system shall ensure high usability with intuitive prompt-based interaction and minimal user effort.
+The system shall support versioning and backward compatibility of workflows and reusable agents.
+The system shall be extensible to support new workflow types, integrations, and agent capabilities.
